@@ -4,15 +4,15 @@ subtitle: "Diplomado de métodos matemáticos y estadísticos para la Ciencia de
 author: |
   Equipo 7  
   Integrantes:  
-  Fajardo Zavala Yendali Viridiana  
-  González Rivas José Rafael  
-  Maldonado Zamora Silvia Viridiana  
-  Olivera Flores Jonathan  
-  Valencia Quiroz Luis Roberto
+  * Fajardo Zavala Yendali Viridiana  
+  * González Rivas José Rafael  
+  * Maldonado Zamora Silvia Viridiana  
+  * Olivera Flores Jonathan  
+  * Valencia Quiroz Luis Roberto
 date: "`r Sys.Date()`"
-output:
-  pdf_document:
-    latex_engine: xelatex
+#output:
+#  pdf_document:
+#    latex_engine: xelatex
 ---
 
 # Descripción
@@ -60,24 +60,57 @@ library(ggord)
 df<-read.csv("penguins.csv")
 
 df %>% dim()
-
 df %>% glimpse()
-
 df %>% head()
-
 df %>% summary()
-
-# Valores faltantes
-
-colSums(is.na(df))
-
-datos_pca <- df %>%
-  select(bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g)
-
-datos_pca %>% head()
-
-
-
 ```
 
+# Preprocesamiento de los datos
+
+## Volviendo a las variables categóricas en tipo factor:
+  
+  Variable species
+```{r, echo = TRUE}
+df <- df %>% 
+  mutate(species = relevel(as.factor(species), "Adelie", "Chinstrap", "Gentoo"))
+```
+ Variable island 
+```{r, echo = TRUE}
+ df <- df %>% 
+  mutate(island = relevel(as.factor(island), "Torgersen", "Biscoe", "Dream"))
+``` 
+ Variable sex
+```{r, echo = TRUE}
+ df <- df %>% 
+  mutate(sex = relevel(as.factor(sex), "male", "female"))
+``` 
+
+```{r, echo = TRUE}
+df %>% head()
+```
+
+## Manejo de valores faltantes
+```{r, echo = TRUE}
+df1<-df[,1:8]
+colSums(is.na(df))
+
+# Dimensiones del DataFrame
+df1 %>% dim()
+
+df1_imputado <- df1 %>%
+  # Imputar variables numéricas con la mediana
+  mutate(across(
+    .cols = where(is.numeric), 
+    .fns = ~ replace_na(., median(., na.rm = TRUE)) 
+  )) %>%
+  # Imputar variables categoricas con la moda
+  mutate(across(
+    .cols = where(~ is.character(.) | is.factor(.)), 
+    .fns = ~ replace_na(., get_mode(.))
+  ))
+
+# Comprobación de que no quedan NAs
+colSums(is.na(df1_imputado))
+
+```
 
