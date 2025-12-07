@@ -3,6 +3,9 @@
 #install.packages(c("learnr","tidyverse","tidymodels","embed","corrr","tidytext","sortable","learntidymodels","rstatix","broom",
 #                 "rgl","plotly","GGally","tidyr","FactoMineR","factoextra","ggord","modeldata","tsne","uwot","scattermore","readr","Rtsne","gganimate","data.table","ggplot2"))
 
+install.packages("gifski")
+install.packages("av")
+
 library(learnr)
 library(tidyverse)
 library(tidymodels)
@@ -29,72 +32,97 @@ library(readr)  ###libreria nueva
 library(Rtsne)  ###libreria nueva
 library(gganimate)  ###libreria nueva
 library(data.table)  ###libreria nueva
+library(gifski)
+library(dplyr)
+library(av)
 theme_set(theme_bw(16))
 
+options(device = "windows")
 
-df<-read.csv("C:/Users/usuario/OneDrive/Desktop/diplomado 2025/R/datos/BreastCancerDiagnosisWisconsin.csv")
 
-###Variable de clasificacion: diagnosis
-
-df <- df %>% 
-  mutate(diagnosis = relevel(as.factor(diagnosis), "B", "M"))
+df<-read.csv("C:/Users/usuario/OneDrive/Desktop/Proyecto 2 Diplomado/Penguins/Club_Penguin/penguins.csv")
 
 df %>% dim()
 
-df %>% glimpse()
+df1<-df[,1:8]
 
-df %>% head()
+colSums(is.na(df1))
 
-df %>% count(diagnosis)
+#primero rellenamos datos faltantes 
+df1c <- df1 %>%
+  mutate(across(where(is.numeric),
+                ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+
+colSums(is.na(df1c))
+
+###Variable de clasificacion: especie 
+
+df1c <- df1c %>% 
+  mutate(
+    species = as.factor(species),
+    island = as.factor(island),
+    sex = as.factor(sex)
+  )
+
+df1c %>% dim()
+
+df1c %>% glimpse()
+
+df1c %>% head()
+
+df1c %>% count(species)
+df1c %>% count(island)
+df1c %>% count(sex)
 
 ##t-sne
 
 ###Sin proponer hiper-parametros, i.e., con los hiper-parametros de default
 
-set.seed(123)
+set.seed(564)
 
 start.time <- proc.time()
 
-df_tsne <- df %>%
+dfpeng_tsne <- df1c %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   tsne()
 
 proc.time()-start.time
 
-str(df_tsne)
+str(dfpeng_tsne)
 
-head(df_tsne)
+head(dfpeng_tsne)
 
 # Adicionando los resultados de  t-SNE a la base
 
-datos<-data.frame(tSNE1=df_tsne[,1],tSNE2=df_tsne[,2],diagnostico=df$diagnosis)
+datos<-data.frame(tSNE1=dfpeng_tsne[,1],tSNE2=dfpeng_tsne[,2],species=df$species)
 head(datos)
 
 ggplot(datos,aes(x=tSNE1,y=tSNE2))+
 geom_point(size=1.1,color="darkblue")+
-labs(title="WDBC: t-sne")
+labs(title="Penguins: t-sne")
 
-ggplot(datos,aes(x=tSNE1,y=tSNE2,color=diagnostico))+
+ggplot(datos,aes(x=tSNE1,y=tSNE2,color=species))+
 geom_point(size=1.1)+
-labs(title="WDBC: t-sne")
+labs(title="penguins: t-sne")
 
-ggplot(datos, aes(x = diagnostico, y = tSNE1)) + geom_boxplot(aes(fill="darkblue"),colour = 3,show.legend = FALSE)
+ggplot(datos, aes(x = species, y = tSNE1)) + geom_boxplot(aes(fill="darkblue"),colour = 3,show.legend = FALSE)
 
-ggplot(datos, aes(x = diagnostico, y = tSNE2)) + geom_boxplot(aes(fill="darkblue"),colour = 5,show.legend = FALSE)
+ggplot(datos, aes(x = species, y = tSNE2)) + geom_boxplot(aes(fill="darkblue"),colour = 5,show.legend = FALSE)
 
 tsne_df <- data.frame(
-  tSNE1 = df_tsne[, 1],
-  tSNE2 = df_tsne[, 2],
-  diagnostico = df$diagnosis
+  tSNE1 = dfpeng_tsne[, 1],
+  tSNE2 = dfpeng_tsne[, 2],
+  species = df$species
 )
-colors <- c("#E6194B", "#3CB44B")
+colors <- c("#e63b19", "#3c46b4","#ae3cb4")
 
-ggplot(tsne_df, aes(x=tSNE1,y=tSNE2, color = factor(diagnostico))) +
+ggplot(tsne_df, aes(x=tSNE1,y=tSNE2, color = factor(species))) +
   geom_point(size = 1.5) +
   scale_color_manual(values = colors) +
   labs(
-    title = "t-SNE: WDBC",
+    title = "t-SNE: Penguins",
     x = "t-SNE Dimension 1",
     y = "t-SNE Dimension 2"
   ) +
@@ -124,11 +152,11 @@ ggplot(tsne_df, aes(x=tSNE1,y=tSNE2, color = factor(diagnostico))) +
 
 ###Otra funcion para hacerlo
 
-set.seed(123)
+set.seed(564)
 
 start.time <- proc.time()
 
-df_Rtsne <- df %>%
+df_Rtsne <- df1c %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   Rtsne() 
@@ -142,33 +170,33 @@ head(df_Rtsne)
 
 names(df_Rtsne)
 
-datos1<-data.frame(Rtsne1=df_Rtsne$Y[,1],Rtsne2=df_Rtsne$Y[,2],diagnostico=df$diagnosis)
+datos1<-data.frame(Rtsne1=df_Rtsne$Y[,1],Rtsne2=df_Rtsne$Y[,2],species=df$species)
 head(datos1)
 
 ggplot(datos1,aes(x=Rtsne1,y=Rtsne2))+
 geom_point(size=1.1,color="darkred")+
-labs(title="WDBC: Rtsne")
+labs(title="Penguins: Rtsne")
 
-ggplot(datos1,aes(x=Rtsne1,y=Rtsne2,color=diagnostico))+
+ggplot(datos1,aes(x=Rtsne1,y=Rtsne2,color=species))+
 geom_point(size=1.1)+
-labs(title="WDBC: Rtsne")
+labs(title="Penguins: Rtsne")
 
-ggplot(datos1, aes(x = diagnostico, y = Rtsne1)) + geom_boxplot(aes(fill="darkblue"),colour = 3,show.legend = FALSE)
+ggplot(datos1, aes(x = species, y = Rtsne1)) + geom_boxplot(aes(fill="darkblue"),colour = 3,show.legend = FALSE)
 
-ggplot(datos1, aes(x = diagnostico, y = Rtsne2)) + geom_boxplot(aes(fill="darkblue"),colour = 5,show.legend = FALSE)
+ggplot(datos1, aes(x = species, y = Rtsne2)) + geom_boxplot(aes(fill="darkblue"),colour = 5,show.legend = FALSE)
 
 Rtsne_df <- data.frame(
   Rtsne1 = df_Rtsne$Y[, 1],
   Rtsne2 = df_Rtsne$Y[, 2],
-  diagnostico = df$diagnosis
+  species = df$species
 )
-colors <- c("#F58231", "#911EB4")
+colors <- c("#F58231", "#911EB4","#1eb43a")
 
-ggplot(Rtsne_df, aes(x=Rtsne1,y=Rtsne2, color = factor(diagnostico))) +
+ggplot(Rtsne_df, aes(x=Rtsne1,y=Rtsne2, color = factor(species))) +
   geom_point(size = 1.5) +
   scale_color_manual(values = colors) +
   labs(
-    title = "t-SNE: WDBC",
+    title = "t-SNE: Penguins",
     x = "t-SNE Dimension 1",
     y = "t-SNE Dimension 2"
   ) +
@@ -179,9 +207,9 @@ ggplot(Rtsne_df, aes(x=Rtsne1,y=Rtsne2, color = factor(diagnostico))) +
 
 ###3D
 
-set.seed(123)
+set.seed(564)
 
-df_tsne3 <- df %>%
+df_tsne3 <- df1c %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   tsne(k=3)
@@ -194,14 +222,14 @@ tsne_df3 <- data.frame(
   tSNE1 = df_tsne3[, 1],
   tSNE2 = df_tsne3[, 2],
   tSNE3 = df_tsne3[, 3],
-  diagnostico = factor(df$diagnosis)
+  species = factor(df$species)
 )
 
 head(tsne_df3)
 
-colors <- c("#F58231", "#911EB4")
+colors <- c("#F58231", "#911EB4","#1eb43a")
 hover_text <- paste(
-  "diagnostico:", tsne_df3$diagnostico, "",
+  "Especie:", tsne_df3$species, "",
   "Dimension 1:", round(tsne_df3$tSNE1, 3),
   "Dimension 2:", round(tsne_df3$tSNE2, 3),
   "Dimension 3:", round(tsne_df3$tSNE3, 3)
@@ -217,11 +245,11 @@ plot_ly(
   marker = list(size = 6),
   text = hover_text,
   hoverinfo = "text",
-  color = ~diagnostico,
+  color = ~species,
   colors = colors
 ) %>%
   layout(
-    title = "t-SNE_3D:WDBC ",
+    title = "t-SNE_3D:Penguins ",
     scene = list(
       xaxis = list(title = "t-SNE Dimension 1"),
       yaxis = list(title = "t-SNE Dimension 2"),
@@ -231,9 +259,9 @@ plot_ly(
 
 ###3D Rtsne
 
-set.seed(123)
+set.seed(564)
 
-df_Rtsne3 <- df %>%
+df_Rtsne3 <- df1c %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   Rtsne(dims=3)
@@ -246,14 +274,14 @@ tsne_Rdf3 <- data.frame(
   tSNE1 = df_Rtsne3$Y[, 1],
   tSNE2 = df_Rtsne3$Y[, 2],
   tSNE3 = df_Rtsne3$Y[, 3],
-  diagnostico = factor(df$diagnosis)
+  species = factor(df$species)
 )
 
 head(tsne_Rdf3)
 
-colors <- c("#F58231", "#911EB4")
+colors <- c("#F58231", "#911EB4","#1eb43a")
 hover_text <- paste(
-  "diagnostico:", tsne_Rdf3$diagnostico, "",
+  "Especie:", tsne_Rdf3$species, "",
   "Dimension 1:", round(tsne_Rdf3$tSNE1, 3),
   "Dimension 2:", round(tsne_Rdf3$tSNE2, 3),
   "Dimension 3:", round(tsne_Rdf3$tSNE3, 3)
@@ -269,11 +297,11 @@ plot_ly(
   marker = list(size = 6),
   text = hover_text,
   hoverinfo = "text",
-  color = ~diagnostico,
+  color = ~species,
   colors = colors
 ) %>%
   layout(
-    title = "t-SNE_3D:WDBC ",
+    title = "t-SNE_3D:Penguins ",
     scene = list(
       xaxis = list(title = "t-SNE Dimension 1"),
       yaxis = list(title = "t-SNE Dimension 2"),
@@ -285,18 +313,21 @@ plot_ly(
 
 ###Exploración de parametros tsne
 
-set.seed(123)
+set.seed(564)
 
 tsne_params <-  expand.grid(perplexity=c(10,15,20,25,30,50)) ###Explorando parametro de perplejidad: perplexity. max_iter fijo 
 
-set.seed(123)
+set.seed(564)
+
+numeric_df <- df1c %>% 
+  select(where(is.numeric))
 
 start.time <- proc.time()
 
 tsne_res <- lapply(seq(nrow(tsne_params)), function(i) {
 	print(i)
 	res <- tsne::tsne(
-		X = df[,-1],
+		X = numeric_df,
             max_iter = 500,
 		perplexity = tsne_params[[1]][i]
 		
@@ -314,7 +345,7 @@ d1 <- rbindlist(lapply(seq(nrow(tsne_params)), function(i) {
 		x = tsne_res[[i]][,1],
 		y = tsne_res[[i]][,2],
 		perplexity = tsne_params[[1]][i],
-		group = df$diagnosis
+		group = df$species
 	)
 }))
 												  
@@ -340,7 +371,7 @@ p1
 
 ###Rtsne exploracion de parametros
 
-set.seed(123)
+set.seed(564)
 
 start.time <- proc.time()
 
@@ -349,7 +380,7 @@ Rtsne_params <-  expand.grid(perplexity=c(10,15,20,25,30,50))
 Rtsne_res <- lapply(seq(nrow(Rtsne_params)), function(i) {
 	print(i)
 	Rres <- Rtsne::Rtsne(
-		X = df[,-1],
+		X = numeric_df,
             max_iter = 500,
             verbose=TRUE,
             perplexity = Rtsne_params[[1]][i],
@@ -367,7 +398,7 @@ d2 <- rbindlist(lapply(seq(nrow(Rtsne_params)), function(i) {
 		x = Rtsne_res[[i]]$Y[,1],
 		y = Rtsne_res[[i]]$Y[,2],
 		perplexity = Rtsne_params[[1]][i],
-		group = df$diagnosis
+		group = df$species
 	)
 }))
 												  
@@ -392,12 +423,12 @@ p2
 ###tsne es muy lento. Para juzgar cómo funciona este algoritmo haciendo una exploracion con dos
 ###parametros, usaremo Rtsne
 
-set.seed(123)
+set.seed(564)
 Rtsne_params2 = expand.grid(perplexity=c(10,15,20,25,30), eta = c(10, 50, 100, 150))  ###eta: tasa de aprendizaje
 
 Rtsne_res2 = lapply(seq(nrow(Rtsne_params2)), function(i) {
   Rres = Rtsne(
-    X = df[,-1],
+    X = numeric_df,
     max_iter = 500,
     verbose=TRUE,
     perplexity = Rtsne_params2$perplexity[i],
@@ -414,7 +445,7 @@ d3 = rbindlist(lapply(seq(nrow(Rtsne_params2)), function(i) {
     y = Rtsne_res2[[i]]$Y[,2],
     perplexity = Rtsne_params2[[1]][i],
     eta = Rtsne_params2[[2]][i],
-    group = df$diagnosis
+    group = df$species
   )
 }))
 
@@ -440,12 +471,12 @@ p3
 
 ###
 
-set.seed(123)
+set.seed(564)
 Rtsne_params3 = expand.grid(perplexity=c(10,15,20,30), eta = c(10, 50, 100, 150, 200))  ###eta: tasa de aprendizaje
 
 Rtsne_res3 = lapply(seq(nrow(Rtsne_params3)), function(i) {
   Rres = Rtsne(
-    X = df[,-1],
+    X = numeric_df,
     max_iter = 500,
     verbose=TRUE,
     perplexity = Rtsne_params3$perplexity[i],
@@ -462,7 +493,7 @@ d4 = rbindlist(lapply(seq(nrow(Rtsne_params3)), function(i) {
     y = Rtsne_res3[[i]]$Y[,2],
     perplexity = Rtsne_params3[[1]][i],
     eta = Rtsne_params3[[2]][i],
-    group = df$diagnosis
+    group = df$species
   )
 }))
 
@@ -487,8 +518,8 @@ p4<-ggplot(d4) +
 p4
 
 
-colores = c('#E178C5','#EB5B00')
-names(colores) = c("B","M")
+colores = c('#E178C5','#EB5B00','#00eb56')
+names(colores) = c("Adelie","Gentoo","Chinstrap")
 
 anim_plot1<-d4 %>% 
   filter(perplexity == 10 | perplexity == 15 | perplexity == 20 | perplexity == 30) %>% 
@@ -509,8 +540,12 @@ anim_plot1<-d4 %>%
   transition_states(parametros, transition_length = 2, state_length = 3) +
   labs(title = '{closest_state}')
 
-animate(anim_plot1, nframes = 200)
-## no olvidar instalar av o lo que sea que se necesita para la animacion 
+#animate(anim_plot1, nframes = 200)
+#animate(anim_plot1, nframes = 200, fps = 20, dpi = 150)
+#animate(anim_plot1, renderer = magick_renderer(), dpi = 150)
+anim <- animate(anim_plot1, nframes = 200, fps = 20, dpi = 150, renderer = gifski_renderer())
+anim_save("animacion_tsne.gif", anim)
+
 
 
 anim_plot2<-d4 %>% 
@@ -532,27 +567,29 @@ anim_plot2<-d4 %>%
   transition_states(parametros,transition_length = 3, state_length = 1) +
   labs(title = '{closest_state}')
 
-animate(anim_plot2, nframes = 300)
+#animate(anim_plot2, nframes = 300)
+anim2 <- animate(anim_plot1, nframes = 200, fps = 20, dpi = 150, renderer = gifski_renderer())
+anim_save("animacion_tsne2.gif", anim2)
 
 ###Despues, se tendria que decidir que seleccion de estos parametros es la que mejor representa
 ###nuestros datos y correr un modelo con ellos
 
 ###Por ejemplo perplexity=30 y eta=150
 
-set.seed(123)
+set.seed(564)
 
-df_RtsneF <- df %>%
+df_RtsneF <- df1c %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   Rtsne(perplexity=30, eta=150) 
 
 
-datos2<-data.frame(Rtsne1=df_RtsneF$Y[,1],Rtsne2=df_RtsneF$Y[,2],diagnostico=df$diagnosis)
+datos2<-data.frame(Rtsne1=df_RtsneF$Y[,1],Rtsne2=df_RtsneF$Y[,2],species=df$species)
 
 win.graph()
-ggplot(datos2,aes(x=Rtsne1,y=Rtsne2,color=diagnostico))+
+ggplot(datos2,aes(x=Rtsne1,y=Rtsne2,color=species))+
 geom_point(size=1.5)+
-labs(title="WDBC: Rtsne")
+labs(title="Penguins: Rtsne")
 
 ###O bien
 
