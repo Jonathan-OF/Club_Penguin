@@ -1,0 +1,320 @@
+---
+title: "Penguins – T-SNE Analysis"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+
+---
+
+
+```{r setup, include=FALSE}
+#library(learnr)
+library(tidyverse)
+library(tidymodels)
+library(embed)
+library(corrr)
+library(tidytext)
+#library(gradethis)
+library(sortable)
+#library(learntidymodels)
+library(rstatix)
+library(broom)
+library(rgl)
+library(plotly)
+library(GGally)
+library(tidyr)
+library(FactoMineR)
+library(factoextra)
+library(ggord)
+library(modeldata)
+library(tsne)
+library(uwot)
+library(scattermore)
+library(readr)
+library(Rtsne)
+library(gganimate)
+library(data.table)
+library(gifski)
+library(dplyr)
+library(av)
+library(webshot2)
+library(htmlwidgets)
+library(knitr)
+tidymodels_prefer()
+conflicted::conflicts_prefer(plotly::layout)
+theme_set(theme_bw(16))
+Sys.setenv(CHROMOTE_CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe")
+```
+
+# Carga y preparación de datos
+```{r}
+df <- read.csv("C:/Users/usuario/OneDrive/Desktop/Proyecto 2 Diplomado/Penguins/Club_Penguin/penguins.csv")
+df %>% dim()
+
+df1 <- df[,1:8]
+colSums(is.na(df1))
+
+df1c <- df1 %>% mutate(across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+colSums(is.na(df1c))
+
+df1c <- df1c %>% mutate(
+  species = as.factor(species),
+  island = as.factor(island),
+  sex = as.factor(sex)
+)
+```
+
+# Exploración
+```{r}
+df1c %>% glimpse()
+df1c %>% count(species)
+df1c %>% count(island)
+df1c %>% count(sex)
+```
+
+# t-SNE Básico
+```{r}
+set.seed(564)
+start.time <- proc.time()
+dfpeng_tsne <- df1c %>% select(where(is.numeric)) %>% scale() %>% tsne()
+proc.time() - start.time
+```
+
+```{r}
+datos <- data.frame(tSNE1 = dfpeng_tsne[,1], tSNE2 = dfpeng_tsne[,2], species = df$species)
+
+ggplot(datos, aes(x = tSNE1, y = tSNE2, color = species)) +
+  geom_point(size = 1.1) +
+  labs(title = "Penguins: t-SNE")
+```
+
+# Rtsne
+```{r}
+set.seed(564)
+start.time <- proc.time()
+df_Rtsne <- df1c %>% select(where(is.numeric)) %>% scale() %>% Rtsne()
+proc.time() - start.time
+```
+
+```{r}
+datos1 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df$species)
+
+ggplot(datos1, aes(x = Rtsne1, y = Rtsne2, color = species)) +
+  geom_point(size = 1.1) + labs(title = "Penguins: Rtsne")
+```
+
+
+#T-SNE 3D
+```{r tsne3d-screenshot, results='asis', fig.align='center'}
+# ---- Run your t-SNE 3D code ----
+set.seed(564)
+
+df_tsne3 <- df1c %>%
+  dplyr::select(where(is.numeric)) %>%
+  scale() %>%
+  tsne(k = 3)
+
+tsne_df3 <- data.frame(
+  tSNE1 = df_tsne3[, 1],
+  tSNE2 = df_tsne3[, 2],
+  tSNE3 = df_tsne3[, 3],
+  species = factor(df$species)
+)
+
+colors <- c("#F58231", "#911EB4", "#1eb43a")
+
+hover_text <- paste(
+  "Especie:", tsne_df3$species, "",
+  "Dimension 1:", round(tsne_df3$tSNE1, 3),
+  "Dimension 2:", round(tsne_df3$tSNE2, 3),
+  "Dimension 3:", round(tsne_df3$tSNE3, 3)
+)
+
+# ---- Create interactive plot ----
+p <- plot_ly(
+  data = tsne_df3,
+  x = ~tSNE1,
+  y = ~tSNE2,
+  z = ~tSNE3,
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 6),
+  text = hover_text,
+  hoverinfo = "text",
+  color = ~species,
+  colors = colors
+) %>%
+  layout(
+    title = "t-SNE 3D: Penguins",
+    scene = list(
+      xaxis = list(title = "t-SNE Dimension 1"),
+      yaxis = list(title = "t-SNE Dimension 2"),
+      zaxis = list(title = "t-SNE Dimension 3")
+    )
+  )
+
+# ---- Save HTML version of the plot ----
+htmlwidgets::saveWidget(p, "tsne3d_temp.html", selfcontained = TRUE)
+
+# ---- Take screenshot for PDF ----
+webshot2::webshot(
+  "tsne3d_temp.html",
+  file = "tsne3d_plot.png",
+  vwidth = 1400, vheight = 1000
+)
+
+# ---- Insert screenshot into PDF ----
+knitr::include_graphics("tsne3d_plot.png")
+```
+
+#R T-SNE 3D
+```{r rtsne3d-screenshot, results='asis', fig.align='center'}
+library(plotly)
+library(webshot2)
+library(htmlwidgets)
+library(knitr)
+library(dplyr)
+
+# ---- Run Rtsne 3D ----
+set.seed(564)
+
+df_Rtsne3 <- df1c %>%
+  dplyr::select(where(is.numeric)) %>%
+  scale() %>%
+  Rtsne(dims = 3)
+
+tsne_Rdf3 <- data.frame(
+  tSNE1 = df_Rtsne3$Y[, 1],
+  tSNE2 = df_Rtsne3$Y[, 2],
+  tSNE3 = df_Rtsne3$Y[, 3],
+  species = factor(df$species)
+)
+
+colors <- c("#F58231", "#911EB4", "#1eb43a")
+
+hover_text <- paste(
+  "Especie:", tsne_Rdf3$species, "",
+  "Dimension 1:", round(tsne_Rdf3$tSNE1, 3),
+  "Dimension 2:", round(tsne_Rdf3$tSNE2, 3),
+  "Dimension 3:", round(tsne_Rdf3$tSNE3, 3)
+)
+
+# ---- Create interactive 3D plot ----
+p <- plot_ly(
+  data = tsne_Rdf3,
+  x = ~tSNE1,
+  y = ~tSNE2,
+  z = ~tSNE3,
+  type = "scatter3d",
+  mode = "markers",
+  marker = list(size = 6),
+  text = hover_text,
+  hoverinfo = "text",
+  color = ~species,
+  colors = colors
+) %>%
+  layout(
+    title = "Rtsne 3D: Penguins",
+    scene = list(
+      xaxis = list(title = "t-SNE Dimension 1"),
+      yaxis = list(title = "t-SNE Dimension 2"),
+      zaxis = list(title = "t-SNE Dimension 3")
+    )
+  )
+
+# ---- Save HTML widget ----
+htmlwidgets::saveWidget(p, "rtsne3d_temp.html", selfcontained = TRUE)
+
+# ---- Screenshot for PDF ----
+webshot2::webshot(
+  "rtsne3d_temp.html",
+  file = "rtsne3d_plot.png",
+  vwidth = 1400, vheight = 1000
+)
+
+# ---- Insert screenshot into PDF ----
+knitr::include_graphics("rtsne3d_plot.png")
+```
+
+
+# Exploración de parámetros t-SNE
+```{r}
+tsne_params <- expand.grid(perplexity = c(10,15,20,25,30,50))
+
+numeric_df <- df1c %>% select(where(is.numeric))
+
+set.seed(564)
+tsne_res <- lapply(seq(nrow(tsne_params)), function(i) {
+  tsne::tsne(X = numeric_df, max_iter = 500, perplexity = tsne_params[[1]][i])
+})
+```
+
+```{r}
+d1 <- rbindlist(lapply(seq(nrow(tsne_params)), function(i) {
+  data.table(
+    x = tsne_res[[i]][,1],
+    y = tsne_res[[i]][,2],
+    perplexity = tsne_params[[1]][i],
+    group = df$species
+  )
+}))
+
+ggplot(d1) +
+  geom_scattermore(aes(x = x, y = y, colour = group), pointsize = 2) +
+  facet_wrap("perplexity", labeller = label_both, scales = "free") +
+  theme_minimal()
+```
+
+# Exploración Rtsne (perplexity y eta)
+```{r}
+set.seed(564)
+Rtsne_params3 <- expand.grid(perplexity=c(10,15,20,30), eta=c(10,50,100,150,200))
+
+Rtsne_res3 <- lapply(seq(nrow(Rtsne_params3)), function(i) {
+  Rtsne(
+    X = numeric_df,
+    max_iter = 500,
+    verbose = FALSE,
+    perplexity = Rtsne_params3$perplexity[i],
+    eta = Rtsne_params3$eta[i],
+    check_duplicates = FALSE,
+    pca = FALSE
+  )
+})
+```
+
+```{r}
+d4 <- rbindlist(lapply(seq(nrow(Rtsne_params3)), function(i) {
+  data.table(
+    x = Rtsne_res3[[i]]$Y[,1],
+    y = Rtsne_res3[[i]]$Y[,2],
+    perplexity = Rtsne_params3[[1]][i],
+    eta = Rtsne_params3[[2]][i],
+    group = df$species
+  )
+}))
+
+ggplot(d4) +
+  geom_scattermore(aes(x = x, y = y, colour = group), pointsize = 2) +
+  facet_wrap(eta~perplexity, labeller = label_both, scales = "free", ncol = 5) +
+  theme_bw()
+```
+
+# Modelo Final
+```{r}
+datos2 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df$species)
+
+ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = species)) +
+  geom_point(size = 1.5) +
+  labs(title = "t-SNE: Modelo Final")
+```

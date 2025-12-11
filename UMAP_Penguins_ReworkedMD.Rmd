@@ -1,0 +1,216 @@
+---
+title: "Penguins – UMAP Analysis"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+always_allow_html: true
+
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(modeldata)
+library(embed)
+library(tsne)
+library(uwot)
+library(scattermore)
+library(readr)
+library(Rtsne)
+library(baguette)
+library(discrim)
+library(gganimate)
+library(data.table)
+library(plotly)
+library(dplyr)
+library(webshot2)
+library(htmlwidgets)
+library(knitr)
+tidymodels_prefer()
+
+Sys.setenv(CHROMOTE_CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe")
+```
+
+# Load Data
+
+```{r}
+df <- read.csv("C:/Users/usuario/OneDrive/Desktop/Proyecto 2 Diplomado/Penguins/Club_Penguin/penguins.csv")
+
+dim(df)
+glimpse(df)
+head(df)
+```
+
+# Preprocessing
+
+```{r}
+df1 <- df[,1:8]
+colSums(is.na(df1))
+
+df1c <- df1 %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
+
+colSums(is.na(df1c))
+
+# converison de factores
+df1c <- df1c %>%
+  mutate(species = as.factor(species),
+         island = as.factor(island),
+         sex = as.factor(sex))
+
+dim(df1c)
+glimpse(df1c)
+head(df1c)
+count(df1c, species)
+count(df1c, island)
+count(df1c, sex)
+```
+
+# UMAP Básico
+
+```{r}
+df_umap <- df1c %>%
+  select(where(is.numeric)) %>%
+  scale() %>%
+  umap()
+
+str(df_umap)
+
+datos <- data.frame(UMAP1=df_umap[,1], UMAP2=df_umap[,2], species=df$species)
+head(datos)
+
+# Plot
+ggplot(datos, aes(x = UMAP1, y = UMAP2, color = species)) +
+  geom_point(size = 2) +
+  labs(title="Penguins: UMAP")
+
+```
+
+# UMAP via tidymodels
+
+```{r}
+df1c <- df1c %>% select(-sex, -island)
+
+umap_rec <- recipe(~., data=df1c) %>%
+  update_role(species, new_role="id") %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors())
+
+umap_res <- prep(umap_rec)
+umap_res
+
+juice(umap_res) %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color=species), size=1.5) +
+  labs(color=NULL)
+```
+
+# 3D UMAP
+
+```{r umap3d-screenshot, results='asis', fig.align='center'}
+
+df_umap3 <- df1c %>%
+  select(where(is.numeric)) %>%
+  scale() %>%
+  umap(n_components = 3)
+
+umap_df3 <- data.frame(
+  UMAP1 = df_umap3[,1],
+  UMAP2 = df_umap3[,2],
+  UMAP3 = df_umap3[,3],
+  species = factor(df$species)
+)
+
+colors <- c("#F58231", "#911EB4", "#3fb41e")
+
+hover_text <- paste(
+  "species:", umap_df3$species,
+  "Dimension 1:", round(umap_df3$UMAP1, 3),
+  "Dimension 2:", round(umap_df3$UMAP2, 3),
+  "Dimension 3:", round(umap_df3$UMAP3, 3)
+)
+
+p <- plot_ly(
+  data = umap_df3,
+  x = ~UMAP1, y = ~UMAP2, z = ~UMAP3,
+  type = "scatter3d", mode = "markers",
+  marker = list(size = 6),
+  text = hover_text, hoverinfo = "text",
+  color = ~species, colors = colors
+)
+
+# HTML temporal
+htmlwidgets::saveWidget(p, "umap3d_temp.html", selfcontained = TRUE)
+
+# screenshot
+webshot2::webshot(
+  "umap3d_temp.html",
+  file = "umap3d_plot.png",
+  vwidth = 1400, vheight = 1000
+)
+
+# Inserta scrennshot al PDF
+knitr::include_graphics("umap3d_plot.png")
+```
+
+# Exploración de Hipereparámetros 
+
+```{r}
+umap_params <- expand.grid(n_neighbors=c(10,20,50,100),
+                           min_dist=c(0.5,0.75,1.1))
+
+numeric_df <- df1c %>% select(where(is.numeric))
+
+umaps <- lapply(seq(nrow(umap_params)), function(i) {
+  umap(X=numeric_df,
+       n_neighbors=umap_params$n_neighbors[i],
+       min_dist=umap_params$min_dist[i])
+})
+
+d <- rbindlist(lapply(seq(nrow(umap_params)), function(i) {
+  data.table(
+    x=umaps[[i]][,1], y=umaps[[i]][,2],
+    n_neighbors=umap_params$n_neighbors[i],
+    min_dist=umap_params$min_dist[i],
+    group=df$species
+  )
+}))
+
+p <- ggplot(d) +
+  geom_scattermore(aes(x=x, y=y, colour=group), pointsize=2) +
+  theme(axis.text=element_blank(), axis.ticks=element_blank(),
+        axis.title=element_blank(), legend.position="none") +
+  facet_wrap(min_dist ~ n_neighbors, labeller=label_both, scales="free") +
+  theme_bw() +
+  labs(title="Penguins: UMAP")
+
+p
+```
+
+# Modelo Final
+
+```{r}
+Final_plot <- d %>%
+  filter(min_dist==0.5, n_neighbors==100) %>%
+  ggplot(aes(x=x, y=y, col=group)) +
+  geom_scattermore(pointsize=1.1) +
+  theme(axis.text=element_blank(), axis.ticks=element_blank(),
+        axis.title=element_blank(), legend.position="none") +
+  theme_bw() +
+  labs(title="UMAP: Modelo final")
+
+Final_plot
+```

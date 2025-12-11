@@ -1,4 +1,9 @@
 ###UMAP_Penguinstidymodels2
+install.packages("baguette")
+install.packages("discrim")
+install.packages("webshot2")
+install.packages("htmlwidgets")
+install.packages("knitr")
 
 library(tidyverse)
 library(tidymodels)
@@ -16,7 +21,9 @@ library(data.table)
 library(plotly)
 tidymodels_prefer()
 library(dplyr)
-
+library(webshot2)
+library(htmlwidgets)
+library(knitr)
 
 df<-read.csv("C:/Users/usuario/OneDrive/Desktop/Proyecto 2 Diplomado/Penguins/Club_Penguin/penguins.csv")
 
