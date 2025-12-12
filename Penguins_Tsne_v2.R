@@ -399,7 +399,7 @@ animate(anim_plot2, nframes = 300)
 # Ejemplo de ejecución final con parámetros elegidos
 # -------------------------
 set.seed(123)
-# Nota: si usas perplexity = 50 y eta = 0.5 (ejemplo), Rtsne acepta eta numérico
+# Perplexity = 50 y eta = 0.5 
 df_RtsneF <- Rtsne::Rtsne(scaled_matrix, perplexity = 50, eta = 0.5,
                           check_duplicates = FALSE, verbose = TRUE)
 
@@ -418,4 +418,5 @@ ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = especie)) +
   geom_point(size = 1.5) +
   scale_color_manual(values = colores_mapped) +
   labs(title = "Penguins Species: Rtsne (Modelo final)",
+
        subtitle = "perplexity = 50, eta = 0.5")
