@@ -10,9 +10,7 @@ author: |
   Olivera Flores Jonathan  
   Valencia Quiroz Luis Roberto
 date: "`r Sys.Date()`"
-output:
-  pdf_document:
-    latex_engine: xelatex
+output: html_document 
 ---
 
 # Descripción
@@ -60,23 +58,401 @@ library(ggord)
 df<-read.csv("penguins.csv")
 
 df %>% dim()
-
 df %>% glimpse()
-
 df %>% head()
 
-df %>% summary()
-
-# Valores faltantes
+###Valores faltantes
 
 colSums(is.na(df))
 
-datos_pca <- df %>%
-  select(bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g)
+###Variable de clasificacion: diagnosis
 
-datos_pca %>% head()
+df <- df %>% 
+  mutate(species = as.factor(species))
+
+df %>% count(species)
+
+table(df$species)
+
+df %>% glimpse()
+
+df %>%
+  group_by(species) %>%
+  summarise(n = n()) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = species, y = n)) +
+    geom_col(fill = c("#CC0033", "#e319dc", "#4A90E2")) +
+    geom_text(aes(label = paste0(n, " | ",
+                                 signif(n / nrow(df) * 100, digits = 4), '%')),
+              nudge_y = 10) +
+    ggtitle("Porcentaje de individuos por especie") +
+    theme_gray()
+
+### Selección numérica correcta
+
+df1 <- df %>%
+  select(where(is.numeric)) %>%  # solo numéricas
+  select(-year) %>%              # EXCLUYE year
+  drop_na()                      # elimina NA
+
+df1 %>% head()
+
+### Histogramas
+
+df1 |> pivot_longer(everything(),
+                    names_to = "Variable",
+                    values_to = "Score") |>
+  ggplot(aes(x = Score)) +
+  geom_histogram(aes(y = ..density..),
+                 bins = 20, colour = 3,
+                 fill = "darkmagenta") +
+  facet_wrap("Variable", ncol = 4, scales = "free") +
+  theme_minimal()
+
+### Boxplots
+
+df1 |> pivot_longer(everything(),
+                    names_to = "Variable",
+                    values_to = "Score") |>
+  ggplot(aes(y = Score)) +
+  geom_boxplot(aes(fill = "darkred"),
+               colour = 3, show.legend = FALSE) +
+  facet_wrap("Variable", ncol = 4, scales = "free") +
+  theme_minimal()
+
+###Densidad
+
+df1 |> pivot_longer(everything(),
+   names_to = "Variable",values_to="Score") |>
+     ggplot(aes(x=Score)) + geom_density(aes(fill="darkred"),colour = 3,show.legend = FALSE) +
+       facet_wrap("Variable",ncol = 4,scales = "free" ) + theme_minimal()
+
+df1_con_clase <- df %>%
+  select(species, where(is.numeric)) %>% 
+  select(-year) %>% 
+  drop_na()
 
 
+### Comparación por la variable de clasificación: species
+
+df1_long <- df1_con_clase %>% 
+  pivot_longer(!species, 
+               names_to = "predictores", 
+               values_to = "values")
+
+theme_set(theme_light())
+
+df1_long %>% 
+  ggplot(aes(x = species, y = values, fill = predictores)) +
+    geom_boxplot() + 
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme(legend.position = "none") +
+    labs(title = "Comparación vía box-plot por especie")
+
+
+df1_long %>% 
+  ggplot(aes(values, fill = species)) +
+    geom_histogram(color = "white", bins = 20) +
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme_light() +
+    labs(title = "Comparación vía histograma por especie")
+
+df1_long %>% 
+  ggplot(aes(values, fill = species)) +
+    geom_density(color = "white", alpha = 0.7) +
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme_light() +
+    labs(title = "Comparación vía densidad por especie")
+
+ggpairs(df1_con_clase, 
+        mapping = aes(color = species),
+        columns = 2:ncol(df1_con_clase))
+
+
+### Correlación
+cor_peng <- df1 %>% correlate(method = "spearman")
+cor_peng
+
+cor_matrix <- cor(df1, method = "spearman")
+cor_matrix
+
+ggcorrplot::ggcorrplot(corr = cor_matrix,
+                       type = "lower",
+                       show.diag = TRUE,
+                       lab = TRUE,
+                       lab_size = 3)
+
+det(cor_matrix)
+
+psych::KMO(cor_matrix)
+
+###Prueba de Bartlett
+
+psych::cortest.bartlett(cor_matrix, n = nrow(df1))
+
+cor.df1 <- df1 %>% cor_mat()
+cor.df1
+
+options(scipen = 999)
+
+### p-values
+cor.df1 %>% cor_get_pval()
+
+### Graficar matriz reordenada
+cor.df1 %>%
+  cor_reorder() %>%
+  pull_lower_triangle() %>%
+  cor_plot(label = TRUE)
+
+### Mostrar todos los pares de correlaciones
+cor.df1 %>% cor_gather() %>% print(n = Inf)
+
+peng_recipe <- 
+  recipe(~ ., data = df1_con_clase) %>% 
+  update_role(species, new_role = "id") %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors(), id = "pca")
+  # %>% step_pca(all_numeric(), threshold = 0.8)
+
+peng_recipe
+
+### Preparar el PCA
+
+peng_pca <- prep(peng_recipe)
+
+### Cargas de las variables en los componentes
+pca_loading <- tidy(peng_pca, id = "pca")
+pca_loading
+
+### Varianza explicada por cada componente
+pca_variances <- tidy(peng_pca, id = "pca", type = "variance")
+pca_variances
+
+### Porcentaje de varianza explicado por cada PC
+pca_var_percent <- tidy(peng_pca, id = "pca", type = "variance") %>%
+  filter(str_detect(terms, "percent variance"))
+pca_var_percent
+
+### Varianza acumulada
+pca_var_cum_percent <- tidy(peng_pca, id = "pca", type = "variance") %>%
+  filter(str_detect(terms, "cumulative percent variance"))
+pca_var_cum_percent
+
+
+peng_pca %>% 
+  tidy(id = "pca", type = "variance") %>% 
+  dplyr::filter(terms == "percent variance") %>% 
+  ggplot(aes(x = component, y = value)) + 
+  geom_col(fill = "#B53389") + 
+  xlim(c(0, 10)) + 
+  geom_point(size=3) +
+  geom_line(color="darkblue", size=1.1)+
+  labs(x="PC", y="% de varianza", title="Scree plot")
+
+peng_pca %>% 
+  tidy(id = "pca", type = "variance") %>% 
+  dplyr::filter(terms == "cumulative percent variance") %>% 
+  ggplot(aes(x = component, y = value)) + 
+  geom_col(fill = "#F25E52") + 
+  xlim(c(0, 10)) + 
+  geom_point(size=3) +
+  geom_line(color="darkblue", size=1.1)+
+  labs(x="PC", y="% acumulado de varianza", title="Scree plot")
+
+
+variance_exp <- tidy(peng_pca,id = "pca", type = "variance") %>%
+                filter(str_detect(terms, "percent variance"))
+
+variance_exp
+
+###Grafica de los primeros dos componentes
+
+VE <- paste(
+  "Varianza explicada por dos componentes:",
+  round(variance_exp$value[[1]] + variance_exp$value[[2]], digits = 2), "%"
+)
+VE
+
+datos_pca <- bake(peng_pca, new_data = NULL)
+datos_pca
+
+
+datos_pca %>%
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point() +
+  labs(
+    x = paste0("PC1: ", round(variance_exp$value[[1]], 2), "%"),
+    y = paste0("PC2: ", round(variance_exp$value[[2]], 2), "%")
+  ) +
+  ggtitle(paste0("Penguins PCA: Gráfica de componentes principales", "\n", VE))
+
+
+datos_pca %>%
+  ggplot(aes(x = PC1, y = PC2, color = factor(species))) +
+  geom_point() +
+  labs(
+    x = paste0("PC1: ", round(variance_exp$value[[1]], 2), "%"),
+    y = paste0("PC2: ", round(variance_exp$value[[2]], 2), "%")
+  ) +
+  ggtitle(paste0("Penguins PCA: Gráfica de componentes principales", "\n", VE))
+
+
+juice(peng_pca) %>%
+  ggplot(aes(PC1, PC2, label = species)) +
+  geom_point(aes(color = species), alpha = 0.9, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward") +
+  labs(color = NULL)
+
+###Componentes
+
+peng_pca %>%
+  tidy(id = "pca") %>%
+  mutate(
+    terms = tidytext::reorder_within(
+      terms,
+      abs(value),
+      component
+    )
+  ) %>%
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  facet_wrap(~component, scales = "free_y") +
+  tidytext::scale_y_reordered() +
+  scale_fill_manual(values = c("#b6dfe2", "#0A537D")) +
+  labs(
+    x = "Absolute value of contribution",
+    y = NULL,
+    fill = "¿Positive?"
+  )
+
+
+peng_pca %>%
+  tidy(id = "pca") %>%
+  filter(component %in% paste0("PC", 1:3)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~component, nrow = 1) +
+  labs(y = NULL)
+
+### 3D
+
+
+library(plotly)
+
+
+datos_pca$species <- as.factor(datos_pca$species)
+
+
+g.df1 <- plot_ly(
+  datos_pca,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~species,
+  colors = c("#0000FF", "#FF00FF", "#00AA00")  
+) %>%
+  add_markers() %>%
+  layout(
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3")
+    )
+  )
+
+g.df1
+
+
+
+fig <- plot_ly(
+  datos_pca,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~species,
+  colors = c('#BF382A', '#0C4B8E', '#E3AA00')  
+) %>%
+  add_markers(size = 4) %>%
+  layout(
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3"),
+      camera = list(eye = list(x = 1.1, y = 1.1, z = 0.8))
+    ),
+    title = "PCA 3D — Penguin Species"
+  )
+
+fig
+
+###EXTRAS
+
+library(GGally)
+library(FactoMineR)
+library(factoextra)
+
+df1_con_clase$species <- as.factor(df1_con_clase$species)
+datos_pca$species     <- as.factor(datos_pca$species)
+
+
+ggpairs(
+  df1_con_clase,
+  mapping = aes(color = species),
+  columns = 2:ncol(df1_con_clase)
+)
+
+ggpairs(
+  datos_pca,
+  mapping = aes(color = species),
+  columns = 1:3   # PC1, PC2, PC3
+)
+
+
+res.pca <- PCA(df1_con_clase[, -1], scale.unit = TRUE)
+
+fviz_pca_var(
+  res.pca,
+  alpha.var = "contrib",
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  title = "Influencia de las variables en PCA1 y PCA2",
+  repel = TRUE
+)
+
+fviz_pca_ind(
+  res.pca,
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+  title = "Distribución de los individuos en PCA1 y PCA2",
+  repel = TRUE
+)
+
+
+fviz_pca_biplot(
+  res.pca,
+  repel = TRUE,
+  title = "Biplot",
+  col.var = "#2E9FDF",
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+
+fviz_pca_biplot(
+  res.pca,
+  repel = TRUE,
+  col.var = "blue",
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+  addEllipses = TRUE,
+  ellipse.level = 0.95,
+  title = "Biplot con elipses por especie"
+)
 
 ```
 
