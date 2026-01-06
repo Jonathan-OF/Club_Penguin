@@ -1,0 +1,239 @@
+---
+title: "Penguins Database - PCA, UMAP y t-SNE"
+subtitle: "Diplomado de métodos matemáticos y estadísticos para la Ciencia de Datos"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+set.seed(123)
+library(tidyverse)
+library(tidymodels)
+library(embed)
+library(corrr)
+library(tidytext)
+library(gradethis)
+library(sortable)
+library(learntidymodels)
+library(rstatix)
+library(broom)
+
+library(plotly)
+library(GGally)
+library(tidyr)
+library(FactoMineR)  
+library(factoextra)
+library(ggord)
+
+library(uwot)   
+library(Rtsne)  
+library(knitr)
+library(kableExtra)
+
+```
+
+
+# Descripción
+
+La base de datos "penguins.csv" es un conjunto de datos sobre las mediciones biométricas de pingüinos en las Islas Palmer, Antártida. Contiene 344 registros y 8 variables.
+
+# Formato
+
+Las variables incluidas son:
+
+1.  species: Categórica. La especie del pingüino (Adelie, Chinstrap o Gentoo).
+2.  island: Categórica. La isla de observación (Torgersen, Biscoe o Dream).
+3.  bill_length_mm: Numérica (float). Longitud del pico (culmen) en milímetros. Se observan 2 valores faltantes.
+4.  bill_depth_mm: Numérica (float). Profundidad del pico en milímetros. Se observan 2 valores faltantes.
+5.  flipper_length_mm: Numérica (float). Longitud de la aleta en milímetros. Se observan 2 valores faltantes.
+6.  body_mass_g: Numérica (float). Masa corporal en gramos. Se observan 2 valores faltantes.
+7.  sex: Categórica. El sexo del pingüino (male o female). Se observan 11 valores faltantes.
+8.  year: Numérica (integer). El año de la observación.
+
+
+# Carga de Datos
+```{r, echo = TRUE}
+
+df<-read.csv("penguins.csv")
+
+df %>% dim()
+
+df %>% glimpse()
+
+df %>% head()
+
+df %>% summary()
+
+# Valores faltantes
+
+colSums(is.na(df))
+
+datos_pca <- df %>%
+  select(bill_length_mm, bill_depth_mm, flipper_length_mm, body_mass_g)
+
+datos_pca %>% head()
+```
+
+# Limpieza y preparación de datos
+
+```{r}
+vars_num <- c(
+  "bill_length_mm",
+  "bill_depth_mm",
+  "flipper_length_mm",
+  "body_mass_g"
+)
+
+datos <- df %>%
+  select(any_of(c("species", "island", "sex", "year")), all_of(vars_num)) %>%
+  drop_na(all_of(vars_num))
+
+X <- datos %>% select(all_of(vars_num)) %>% as.matrix()
+X_scaled <- scale(X)
+
+dim(datos)
+
+
+```
+# Análisis descriptivo
+# Conteos de variables por categorias
+
+
+```{r}
+kable(table(datos$species), caption = "Conteo por especie") %>% kable_styling()
+kable(table(datos$island), caption = "Conteo por isla") %>% kable_styling()
+kable(table(datos$sex), caption = "Conteo por sexo") %>% kable_styling()
+
+```
+# Resumen numérico
+
+```{r}
+desc_global <- datos %>%
+  summarise(across(all_of(vars_num),
+                   list(mean = mean, sd = sd, min = min, max = max),
+                   .names = "{.col}_{.fn}"))
+
+kable(desc_global, digits = 2,
+      caption = "Resumen global de variables numéricas") %>%
+  kable_styling(full_width = FALSE)
+
+``` 
+
+# Boxplots por especie
+``` {r}
+datos_long <- datos %>%
+  pivot_longer(cols = all_of(vars_num),
+               names_to = "variable",
+               values_to = "value")
+
+ggplot(datos_long, aes(species, value, fill = species)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~variable, scales = "free_y") +
+  theme_minimal() +
+  theme(legend.position = "none")
+``` 
+
+#PCA 
+
+Se aplica PCA a las variables numéricas escaladas para reducir dimensionalidad y estudiar la varianza explicada por las componentes. 
+
+```{r}
+pca <- prcomp(X_scaled, center = FALSE, scale. = FALSE)
+
+var_exp <- (pca$sdev^2) / sum(pca$sdev^2)
+
+``` 
+# Scree plot 
+``` {r}
+scree <- tibble(
+  PC = seq_along(var_exp),
+  VarExpPct = 100 * var_exp
+)
+
+ggplot(scree, aes(PC, VarExpPct)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Scree plot (PCA)",
+       x = "Componente",
+       y = "Varianza explicada (%)")
+``` 
+#Proyección PC1 vs PC2
+``` {r}
+pca_df <- as.data.frame(pca$x) %>%
+  mutate(species = datos$species,
+         island = datos$island)
+
+ggplot(pca_df, aes(PC1, PC2, color = species, shape = island)) +
+  geom_point(alpha = 0.8, size = 2) +
+  theme_minimal() +
+  labs(
+    subtitle = paste0(
+      "PC1=", round(var_exp[1]*100,1), "% | ",
+      "PC2=", round(var_exp[2]*100,1), "%"
+    )
+  )
+``` 
+#UMAP
+``` {r}
+umap_emb <- umap(X_scaled, n_neighbors = 15, min_dist = 0.1)
+
+umap_df <- as.data.frame(umap_emb)
+colnames(umap_df) <- c("UMAP1","UMAP2")
+umap_df$species <- datos$species
+
+ggplot(umap_df, aes(UMAP1, UMAP2, color = species)) +
+  geom_point(alpha = 0.8) +
+  theme_minimal()
+``` 
+#t-SNE
+``` {r}
+perp <- min(30, floor((nrow(X_scaled)-1)/3))
+
+tsne <- Rtsne(X_scaled,
+              dims = 2,
+              perplexity = perp,
+              verbose = FALSE)
+
+tsne_df <- as.data.frame(tsne$Y)
+colnames(tsne_df) <- c("TSNE1","TSNE2")
+tsne_df$species <- datos$species
+
+ggplot(tsne_df, aes(TSNE1, TSNE2, color = species)) +
+  geom_point(alpha = 0.8) +
+  theme_minimal()
+``` 
+  
+#Conclusiones PCA
+- PCA reduce dimensionalidad mediante combinaciones lineales de variables.
+- En este análisis, PC1 y PC2 explican aproximadamente r round(var_exp[1]*100,1)% y r round(var_exp[2]*100,1)% de la variabilidad.
+- La gráfica PC1–PC2 muestra el grado de separación (o solapamiento) entre especies y sugiere qué tan bien un modelo lineal captura la estructura.
+
+#UMAP
+- UMAP preserva vecindades (estructura local) y puede mostrar separaciones no lineales.
+- En la proyección UMAP se observa (describir lo que vean: separación clara por especie / solapamiento parcial / grupos compactos).
+- El resultado depende de parámetros como n_neighbors y min_dist; aquí se usaron valores estándar para un balance entre estructura local y global.
+
+#t-SNE
+- t-SNE es útil para visualizar grupos locales, pero es sensible a perplexity y a la semilla.
+- En la proyección t-SNE se observan (describir lo que vean: clusters por especie / mezcla parcial).
+- Se recomienda interpretar t-SNE como visualización y no como preservación de distancias globales.
