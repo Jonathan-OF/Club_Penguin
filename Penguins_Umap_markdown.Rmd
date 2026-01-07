@@ -1,0 +1,233 @@
+---
+title: "Penguins UMAP"
+output: html_document
+---
+
+## Librerias y configuracion inicial
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(modeldata)
+library(embed)
+library(tsne)
+library(uwot)
+library(scattermore)
+library(readr)
+library(Rtsne)
+library(baguette)
+library(discrim)
+library(gganimate)
+library(data.table)
+library(plotly)
+
+tidymodels_prefer()
+set.seed(123)
+```
+
+## Funcion auxiliar
+
+```{r}
+get_mode <- function(x) {
+x_no_na <- x[!is.na(x)]
+if (length(x_no_na) == 0) return(NA_character_)
+ux <- unique(x_no_na)
+ux[which.max(tabulate(match(x_no_na, ux)))]
+}
+
+```
+
+## Lectura de datos
+
+```{r}
+df <- read.csv("C:\\Users\\luis2\\OneDrive\\Documents\\Diplomado\\Modulo_2\\Proyecto1\\penguins.csv",
+               stringsAsFactors = FALSE)
+```
+
+## Imputacion de valores faltantes
+
+```{r}
+df <- df %>% mutate(across(where(is.factor), as.character))
+
+df <- df %>% mutate(across(where(is.character), ~na_if(trimws(.), "")))
+
+df_imputado <- df %>%
+mutate(across(
+.cols = where(is.numeric),
+.fns = ~ ifelse(is.na(.), median(., na.rm = TRUE), .)
+))
+
+df_imputado <- df_imputado %>%
+mutate(across(
+.cols = where(is.character),
+.fns = ~ {
+vec <- .
+vec[is.na(vec)] <- get_mode(vec)
+factor(vec)
+}
+))
+
+df <- df_imputado
+```
+
+## Verificacion rapida del dataset
+
+```{r}
+print(colSums(is.na(df)))
+print(dim(df))
+glimpse(df)
+df %>% count(species)
+```
+
+## Preparacion de matriz numerica escalada
+
+```{r}
+numeric_mat <- df %>% dplyr::select(where(is.numeric)) %>% as.matrix()
+numeric_scaled <- scale(numeric_mat)
+```
+
+## UMAP (uwot)
+
+```{r}
+df_umap <- uwot::umap(numeric_scaled, n_components = 2)
+
+datos <- data.frame(
+UMAP1 = df_umap[, 1],
+UMAP2 = df_umap[, 2],
+especie = df$species
+)
+```
+
+```{r}
+ggplot(datos, aes(x = UMAP1, y = UMAP2, color = especie)) +
+geom_point(size = 2) +
+labs(title = "Penguins Species: UMAP") +
+theme_minimal()
+```
+
+## UMAP (recipe)
+
+```{r}
+umap_rec <- recipe(~., data = df) %>%
+update_role(species, new_role = "id") %>%
+step_mutate(across(where(is.character), ~ factor(.))) %>%
+step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+step_normalize(all_numeric_predictors()) %>%
+step_umap(all_predictors(), num_comp = 2)
+
+umap_res <- prep(umap_rec)
+```
+
+```{r}
+juice(umap_res) %>%
+ggplot(aes(UMAP1, UMAP2)) +
+geom_point(aes(color = species), size = 1.5) +
+labs(color = NULL) +
+theme_minimal()
+```
+
+## UMAP 3D
+
+```{r}
+df_umap3 <- uwot::umap(numeric_scaled, n_components = 3)
+
+umap_df3 <- data.frame(
+UMAP1 = df_umap3[, 1],
+UMAP2 = df_umap3[, 2],
+UMAP3 = df_umap3[, 3],
+especie = factor(df$species)
+)
+```
+
+```{r}
+plot_ly(
+data = umap_df3,
+x = ~UMAP1,
+y = ~UMAP2,
+z = ~UMAP3,
+type = "scatter3d",
+mode = "markers",
+marker = list(size = 6),
+color = ~especie
+)
+```
+
+## Exploracion de hiperparametros UMAP(grid)
+
+```{r}
+umap_params <- expand.grid(
+n_neighbors = c(10, 20, 50, 100),
+min_dist = c(0.5, 0.75, 1.1)
+)
+
+umaps <- lapply(seq_len(nrow(umap_params)), function(i) {
+uwot::umap(
+X = numeric_scaled,
+n_neighbors = umap_params$n_neighbors[i],
+min_dist = umap_params$min_dist[i],
+n_threads = 1
+)
+})
+```
+
+```{r}
+d <- rbindlist(lapply(seq_len(nrow(umap_params)), function(i) {
+data.table(
+x = umaps[[i]][, 1],
+y = umaps[[i]][, 2],
+n_neighbors = umap_params$n_neighbors[i],
+min_dist = umap_params$min_dist[i],
+group = df$species
+)
+}))
+```
+
+```{r}
+ggplot(d) +
+geom_scattermore(aes(x = x, y = y, colour = group), pointsize = 2) +
+facet_wrap(min_dist ~ n_neighbors, labeller = label_both, scales = "free") +
+theme_bw()
+```
+
+## Animaciones para seleccion de hiperparamtetros
+
+```{r}
+colores_named <- c(
+"Adelie" = "#E6194B",
+"Gentoo" = "#3CB44B",
+"Chinstrap" = "#2e2ed2"
+)
+
+anim_plot1 <- d %>%
+  filter(n_neighbors %in% c(10, 20, 50, 100)) %>%
+  mutate(parametros = factor(paste('n_neighbors:', n_neighbors, 'min_dist:', min_dist))) %>%
+  ggplot() +
+  geom_scattermore(aes(x = x, y = y, col = group), pointsize = 2) +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank(),
+    legend.position = "none"
+  ) +
+  theme_bw() +
+  labs(title = 'Verificación de los parámetros') +
+  scale_color_manual(values = colores_named) +
+  transition_states(parametros, transition_length = 2, state_length = 3) +
+  labs(title = '{closest_state}')
+
+animate(anim_plot1, nframes = 300)
+```
+
+## Modelo final seleccionado
+
+```{r}
+Final_plot <- d1 %>%
+filter(min_dist == 0.75, n_neighbors == 150) %>%
+ggplot() +
+geom_scattermore(aes(x = x, y = y, col = group), pointsize = 2.5) +
+scale_color_manual(values = colores_named) +
+theme_bw() +
+labs(title = 'UMAP: Modelo final')
+
+print(Final_plot)
+```
