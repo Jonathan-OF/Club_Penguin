@@ -1,0 +1,212 @@
+---
+title: "Penguins_tsne"
+output: html_document
+---
+
+## Librerias y configuracion inicial
+
+```{r}
+library(learnr)
+library(tidyverse)
+library(tidymodels)
+library(embed)
+library(corrr)
+library(tidytext)
+library(gradethis)
+library(sortable)
+library(rstatix)
+library(broom)
+library(rgl)
+library(plotly)
+library(GGally)
+library(tidyr)
+library(FactoMineR)
+library(factoextra)
+library(ggord)
+library(modeldata)
+library(tsne)
+library(uwot)
+library(scattermore)
+library(readr)
+library(Rtsne)
+library(gganimate)
+library(data.table)
+library(dplyr)
+
+theme_set(theme_bw(16))
+```
+
+## Función auxiliar
+
+```{r}
+get_mode <- function(x) {
+x_no_na <- x[!is.na(x)]
+if (length(x_no_na) == 0) return(NA_character_)
+ux <- unique(x_no_na)
+ux[which.max(tabulate(match(x_no_na, ux)))]
+}
+
+```
+
+## Lectura y validación de datos.
+
+```{r}
+df <- read.csv("C:\\Users\\luis2\\OneDrive\\Documents\\Diplomado\\Modulo_2\\Proyecto1\\penguins.csv",
+               stringsAsFactors = FALSE)
+
+if (!"species" %in% names(df)) stop("No encuentro la columna 'species' en el CSV")
+```
+
+## Imputación de valores faltantes
+
+```{r}
+df <- df %>% mutate(across(where(is.factor), as.character))
+
+df_imputado <- df %>%
+mutate(across(
+.cols = where(is.numeric),
+.fns = ~ ifelse(is.na(.), median(., na.rm = TRUE), .)
+))
+
+df_imputado <- df_imputado %>%
+mutate(across(
+.cols = where(is.character),
+.fns = ~ {
+vec <- .
+vec[is.na(vec)] <- get_mode(vec)
+factor(vec)
+}
+))
+
+df <- df_imputado
+```
+
+## Exploración rápida del dataset
+
+```{r}
+print(colSums(is.na(df)))
+print(dim(df))
+glimpse(df)
+df %>% count(species)
+```
+
+## Preparación de variables
+
+```{r}
+df <- df %>%
+mutate(species = factor(as.character(species),
+levels = c("Adelie", "Gentoo", "Chinstrap")))
+
+df_numeric <- df %>% select(where(is.numeric))
+scaled_matrix <- scale(df_numeric)
+```
+
+## t-SNE
+
+```{r}
+set.seed(123)
+df_tsne <- tsne::tsne(scaled_matrix)
+
+datos <- data.frame(
+tSNE1 = df_tsne[,1],
+tSNE2 = df_tsne[,2],
+especie = df$species
+)
+```
+
+```{r}
+ggplot(datos, aes(x = tSNE1, y = tSNE2, color = especie)) +
+geom_point(size = 1.1) +
+labs(title = "Penguins Species: t-SNE")
+```
+
+## Rtsne
+
+```{r}
+set.seed(123)
+df_Rtsne <- Rtsne::Rtsne(scaled_matrix, check_duplicates = FALSE)
+
+datos1 <- data.frame(
+Rtsne1 = df_Rtsne$Y[,1],
+Rtsne2 = df_Rtsne$Y[,2],
+especie = df$species
+)
+```
+
+```{r}
+ggplot(datos1, aes(x = Rtsne1, y = Rtsne2, color = especie)) +
+geom_point(size = 1.1) +
+labs(title = "Penguins Species: Rtsne")
+```
+
+## Exploración de parametros
+
+```{r}
+set.seed(123)
+tsne_params <- expand.grid(perplexity = c(10, 15, 20, 25, 30, 50))
+
+tsne_res <- lapply(seq_len(nrow(tsne_params)), function(i) {
+tsne::tsne(X = scaled_matrix, perplexity = tsne_params$perplexity[i])
+})
+
+d1 <- rbindlist(lapply(seq_len(nrow(tsne_params)), function(i) {
+data.table(
+x = tsne_res[[i]][,1],
+y = tsne_res[[i]][,2],
+perplexity = tsne_params$perplexity[i],
+group = df$species
+)
+}))
+```
+
+```{r}
+ggplot(d1) +
+geom_scattermore(aes(x = x, y = y, colour = group), pointsize = 2) +
+facet_wrap(~perplexity, labeller = label_both, scales = "free")
+```
+
+## Animaciones para validación visual
+
+```{r}
+colores <- c('#E178C5','#EB5B00','#2e2ed2')
+names(colores) <- c("Adelie", "Gentoo", "Chinstrap")
+
+anim_plot1 <- d4 %>%
+filter(perplexity %in% c(10, 15, 20, 30)) %>%
+mutate(parametros = factor(paste('perplexity:', perplexity, 'eta:', eta))) %>%
+ggplot(aes(x = x, y = y, col = group)) +
+geom_scattermore(pointsize = 2) +
+scale_color_manual(values = colores) +
+transition_states(parametros)
+```
+
+## Modelo Final seleccionado
+
+```{r}
+set.seed(123)
+df_RtsneF <- Rtsne::Rtsne(
+scaled_matrix,
+perplexity = 50,
+eta = 0.5,
+check_duplicates = FALSE
+)
+
+datos2 <- data.frame(
+Rtsne1 = df_RtsneF$Y[,1],
+Rtsne2 = df_RtsneF$Y[,2],
+especie = df$species
+)
+```
+
+```{r}
+colores_vec <- c('#E178C5','#EB5B00','#2e2ed2')
+colores_mapped <- setNames(colores_vec, levels(datos2$especie))
+
+ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = especie)) +
+geom_point(size = 1.5) +
+scale_color_manual(values = colores_mapped) +
+labs(
+title = "Penguins Species: Rtsne (Modelo final)",
+subtitle = "perplexity = 50, eta = 0.5"
+)
+```
