@@ -17,6 +17,21 @@ always_allow_html: true
 
 ---
 
+# Descripción
+
+El dataset "penguins.csv" es un conjunto de datos sobre las mediciones biométricas de pingüinos en las Islas Palmer, Antártida. Contiene 344 registros y 8 variables.
+
+# Variables
+
+1.  species: Categórica. La especie del pingüino (Adelie, Chinstrap o Gentoo).
+2.  island: Categórica. La isla de observación (Torgersen, Biscoe o Dream).
+3.  bill_length_mm: Numérica (float). Longitud del pico en milímetros. 
+4.  bill_depth_mm: Numérica (float). Profundidad del pico en milímetros. 
+5.  flipper_length_mm: Numérica (float). Longitud de la aleta en milímetros. 
+6.  body_mass_g: Numérica (float). Masa corporal en gramos. 
+7.  sex: Categórica. El sexo del pingüino (male o female).
+8.  year: Numérica (integer). El año de la observación.
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -57,6 +72,9 @@ tidymodels_prefer()
 library(baguette)
 library(discrim)
 
+library(kableExtra)
+
+
 
 conflicted::conflicts_prefer(plotly::layout)
 theme_set(theme_bw(16))
@@ -66,44 +84,602 @@ Sys.setenv(CHROMOTE_CHROME = "C:/Program Files/Google/Chrome/Application/chrome.
 
 
 
+# PCA
 
-# Carga y preparación de datos
-```{r}
-df <- read.csv("C:/Users/usuario/OneDrive/Desktop/Proyecto 2 Diplomado/Penguins/Club_Penguin/penguins.csv")
-df %>% dim()
+```{r, include = FALSE}
+# Carga de Datos
+df<-read.csv("penguins.csv")
 
-df1 <- df[,1:8]
-colSums(is.na(df1))
+```
 
-df1c <- df1 %>% mutate(across(where(is.numeric), ~ ifelse(is.na(.), mean(., na.rm = TRUE), .)))
-colSums(is.na(df1c))
+# Explorando el dataset 
 
-df1c <- df1c %>% mutate(
-  species = as.factor(species),
-  island = as.factor(island),
-  sex = as.factor(sex)
+```{r, echo = FALSE}
+
+# Dimensión 
+
+tibble(
+  Métrica = c("Número de observaciones", "Número de variables"),
+  Valor = c(nrow(df), ncol(df))
+) %>%
+  kable(caption = "Dimensión del conjunto de datos")
+
+# HEAD
+
+df %>%
+  head() %>%
+  kable(caption = "Primeras filas del conjunto de datos")
+
+# Valores faltantes
+
+df %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = reorder(name, value), y = value)) +
+  geom_col(fill = "purple") +
+  geom_text(
+    aes(label = value),
+    hjust = -0.1,
+    size = 4
+  ) +
+  coord_flip() +
+  labs(
+    title = "Número de registros faltantes por variable",
+    x = "Variables",
+    y = "Número de faltantes"
+  ) +
+  theme_minimal()
+
+# Valores Duplicados
+
+if (any(duplicated(df))) {
+  cat("Se identificaron registros duplicados en el conjunto de datos.")
+} else {
+  cat("No se identificaron registros duplicados en el conjunto de datos.")
+}
+
+# Variable de clasificacion: diagnosis
+
+df <- df %>% 
+  mutate(species = as.factor(species))
+
+```
+
+```{r, include = FALSE}
+# Número de especies 
+
+df %>% count(species)
+
+table(df$species)
+
+```
+
+```{r, echo = FALSE}
+
+df %>%
+  group_by(species) %>%
+  summarise(n = n()) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = species, y = n)) +
+    geom_col(fill = c("#CC0033", "#e319dc", "#4A90E2")) +
+    geom_text(aes(label = paste0(n, " | ",
+                                 signif(n / nrow(df) * 100, digits = 4), '%')),
+              nudge_y = 10) +
+    ggtitle("Porcentaje de individuos por especie") +
+    theme_gray()
+
+# Nuevo dataframe
+
+df1 <- df %>%
+  select(where(is.numeric)) %>%  # solo variables numéricas
+  select(-year) %>%              # excluimos el año 
+  drop_na()                      # eliminamos los valores nulos 
+```
+
+#  Histogramas
+```{r, echo = FALSE}
+
+df1 |> 
+  pivot_longer(
+    everything(),
+    names_to = "Variable",
+    values_to = "Score"
+  ) |>
+  ggplot(aes(x = Score)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 20,
+    colour = 3,
+    fill = "darkmagenta"
+  ) +
+  facet_wrap("Variable", ncol = 4, scales = "free") +
+  theme_minimal()
+
+
+```
+
+# Boxplots
+```{r, echo = FALSE}
+df1 |> pivot_longer(everything(),
+                    names_to = "Variable",
+                    values_to = "Score") |>
+  ggplot(aes(y = Score)) +
+  geom_boxplot(aes(fill = "darkred"),
+               colour = 3, show.legend = FALSE) +
+  facet_wrap("Variable", ncol = 4, scales = "free") +
+  theme_minimal()
+
+```
+
+# Densidad
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+df1 |> pivot_longer(everything(),
+   names_to = "Variable",values_to="Score") |>
+     ggplot(aes(x=Score)) + geom_density(aes(fill="darkred"),colour = 3,show.legend = FALSE) +
+       facet_wrap("Variable",ncol = 4,scales = "free" ) + theme_minimal()
+
+df1_con_clase <- df %>%
+  select(species, where(is.numeric)) %>% 
+  select(-year) %>% 
+  drop_na()
+
+```
+
+# Comparación por la variable de clasificación: species
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+df1_long <- df1_con_clase %>% 
+  pivot_longer(!species, 
+               names_to = "predictores", 
+               values_to = "values")
+
+theme_set(theme_light())
+
+df1_long %>% 
+  ggplot(aes(x = species, y = values, fill = predictores)) +
+    geom_boxplot() + 
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme(legend.position = "none") +
+    labs(title = "Comparación vía box-plot por especie")
+
+
+df1_long %>% 
+  ggplot(aes(values, fill = species)) +
+    geom_histogram(color = "white", bins = 20) +
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme_light() +
+    labs(title = "Comparación vía histograma por especie")
+
+df1_long %>% 
+  ggplot(aes(values, fill = species)) +
+    geom_density(color = "white", alpha = 0.7) +
+    facet_wrap(~ predictores, scales = "free", ncol = 4) +
+    scale_color_viridis_d(option = "plasma", end = .7) +
+    theme_light() +
+    labs(title = "Comparación vía densidad por especie")
+
+ggpairs(df1_con_clase, 
+        mapping = aes(color = species),
+        columns = 2:ncol(df1_con_clase))
+
+```
+
+# Correlación
+
+```{r, include = FALSE}
+
+cor_peng <- df1 %>% correlate(method = "spearman")
+cor_peng
+
+cor_matrix <- cor(df1, method = "spearman")
+cor_matrix
+
+```
+
+```{r, echo = FALSE, warning = FALSE}
+
+ggcorrplot::ggcorrplot(corr = cor_matrix,
+                       type = "lower",
+                       show.diag = TRUE,
+                       lab = TRUE,
+                       lab_size = 3)
+
+kmo <- psych::KMO(cor_matrix)
+                  
+                  
+```
+
+```markdown
+El índice de adecuación muestral de Kaiser–Meyer–Olkin (KMO) fue de 
+**`r round(kmo$MSA, 2)`**, lo que indica una adecuación muestral 
+adecuada para la aplicación del Análisis de Componentes Principales.
+
+```
+
+# Prueba de Bartlett
+```{r, echo = FALSE}
+bartlett <-  psych::cortest.bartlett(cor_matrix, n = nrow(df1))
+
+```
+
+```markdown
+La prueba de esfericidad de Bartlett fue estadísticamente significativa 
+(χ² = `r round(bartlett$chisq, 2)`, 
+gl = `r bartlett$df`, 
+p < 0.001), lo que indica que la matriz de correlación es adecuada 
+para la aplicación del PCA.
+
+```
+
+```{r, include = FALSE}
+cor.df1 <- df1 %>% cor_mat()
+cor.df1
+
+options(scipen = 999)
+
+```
+
+
+```markdown
+Previo a la aplicación del Análisis de Componentes Principales (PCA), se 
+evaluó la estructura de correlación de las variables. La matriz de 
+correlación de Spearman mostró asociaciones estadísticamente 
+significativas entre las variables (p < 0.001). La prueba de esfericidad 
+de Bartlett fue significativa (χ² = 742.41, gl = 6, p < 0.001), indicando 
+que la matriz de correlación difiere de una matriz identidad. Asimismo, 
+el índice de adecuación muestral de Kaiser–Meyer–Olkin (KMO) presentó un 
+valor de 0.70, lo que sugiere una adecuación muestral adecuada. En 
+conjunto, estos resultados confirman que los datos son apropiados para 
+la aplicación del Análisis de Componentes Principales.
+
+```
+
+```{r, echo = FALSE, warning = FALSE}
+
+# Graficar matriz reordenada
+cor.df1 %>%
+  cor_reorder() %>%
+  pull_lower_triangle() %>%
+  cor_plot(label = TRUE)
+
+```
+
+```{r, include = FALSE, warning = FALSE}
+
+#  Mostrar todos los pares de correlaciones
+cor.df1 %>% cor_gather() %>% print(n = Inf)
+
+```
+```markdown
+Se observaron correlaciones fuertes entre algunas variables, destacando 
+la asociación positiva entre la longitud de la aleta y la masa corporal 
+(r = 0.87, p < 0.001).
+```
+
+```{r, include = FALSE, warning = FALSE}
+peng_recipe <- 
+  recipe(~ ., data = df1_con_clase) %>% 
+  update_role(species, new_role = "id") %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors(), id = "pca")
+  # %>% step_pca(all_numeric(), threshold = 0.8)
+
+peng_recipe
+
+```
+
+# PCA 
+
+```{r, include = FALSE, warning = FALSE}
+
+peng_pca <- prep(peng_recipe)
+
+# Cargas de las variables en los componentes
+pca_loading <- tidy(peng_pca, id = "pca")
+pca_loading
+
+# Varianza explicada por cada componente
+pca_variances <- tidy(peng_pca, id = "pca", type = "variance")
+pca_variances
+
+# Porcentaje de varianza explicado por cada PC
+pca_var_percent <- tidy(peng_pca, id = "pca", type = "variance") %>%
+  filter(str_detect(terms, "percent variance"))
+pca_var_percent
+
+# Varianza acumulada
+pca_var_cum_percent <- tidy(peng_pca, id = "pca", type = "variance") %>%
+  filter(str_detect(terms, "cumulative percent variance"))
+pca_var_cum_percent
+
+```
+
+```{r, echo = FALSE , warning = FALSE}
+
+peng_pca %>% 
+  tidy(id = "pca", type = "variance") %>% 
+  dplyr::filter(terms == "percent variance") %>% 
+  ggplot(aes(x = component, y = value)) + 
+  geom_col(fill = "#B53389") + 
+  xlim(c(0, 10)) + 
+  geom_point(size=3) +
+  geom_line(color="darkblue", size=1.1)+
+  labs(x="PC", y="% de varianza", title="Scree plot")
+
+peng_pca %>% 
+  tidy(id = "pca", type = "variance") %>% 
+  dplyr::filter(terms == "cumulative percent variance") %>% 
+  ggplot(aes(x = component, y = value)) + 
+  geom_col(fill = "#F25E52") + 
+  xlim(c(0, 10)) + 
+  geom_point(size=3) +
+  geom_line(color="darkblue", size=1.1)+
+  labs(x="PC", y="% acumulado de varianza", title="Scree plot")
+
+```
+
+```{r, include = FALSE , warning = FALSE}
+
+variance_exp <- tidy(peng_pca,id = "pca", type = "variance") %>%
+                filter(str_detect(terms, "percent variance"))
+
+variance_exp
+
+```
+
+
+```{r, include = FALSE , warning = FALSE}
+
+datos_pca <- bake(peng_pca, new_data = NULL)
+datos_pca
+
+```
+
+# Grafica de los primeros dos componentes
+
+```{r, include = FALSE , warning = FALSE}
+
+VE <- paste(
+  "Varianza explicada por dos componentes:",
+  round(variance_exp$value[[1]] + variance_exp$value[[2]], digits = 2), "%"
+)
+VE
+
+```
+
+```{r, echo = FALSE , warning = FALSE}
+
+
+datos_pca %>%
+  ggplot(aes(x = PC1, y = PC2)) +
+  geom_point() +
+  labs(
+    x = paste0("PC1: ", round(variance_exp$value[[1]], 2), "%"),
+    y = paste0("PC2: ", round(variance_exp$value[[2]], 2), "%")
+  ) +
+  ggtitle(paste0("Penguins PCA: Gráfica de componentes principales", "\n", VE))
+
+
+datos_pca %>%
+  ggplot(aes(x = PC1, y = PC2, color = factor(species))) +
+  geom_point() +
+  labs(
+    x = paste0("PC1: ", round(variance_exp$value[[1]], 2), "%"),
+    y = paste0("PC2: ", round(variance_exp$value[[2]], 2), "%")
+  ) +
+  ggtitle(paste0("Penguins PCA: Gráfica de componentes principales", "\n", VE))
+
+```
+
+```{r, include = FALSE , warning = FALSE}
+juice(peng_pca) %>%
+  ggplot(aes(PC1, PC2, label = species)) +
+  geom_point(aes(color = species), alpha = 0.9, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward") +
+  labs(color = NULL)
+
+```
+
+# Componentes
+
+```{r, echo = FALSE , warning = FALSE}
+
+peng_pca %>%
+  tidy(id = "pca") %>%
+  mutate(
+    terms = tidytext::reorder_within(
+      terms,
+      abs(value),
+      component
+    )
+  ) %>%
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  facet_wrap(~component, scales = "free_y") +
+  tidytext::scale_y_reordered() +
+  scale_fill_manual(values = c("#b6dfe2", "#0A537D")) +
+  labs(
+    x = "Absolute value of contribution",
+    y = NULL,
+    fill = "¿Positive?"
+  )
+
+
+peng_pca %>%
+  tidy(id = "pca") %>%
+  filter(component %in% paste0("PC", 1:3)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~component, nrow = 1) +
+  labs(y = NULL)
+
+```
+
+# 3D
+```{r, echo = FALSE , warning = FALSE}
+
+datos_pca$species <- as.factor(datos_pca$species)
+
+
+g.df1 <- plot_ly(
+  datos_pca,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~species,
+  colors = c("#0000FF", "#FF00FF", "#00AA00")  
+) %>%
+  add_markers() %>%
+  layout(
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3")
+    )
+  )
+
+
+htmlwidgets::saveWidget(g.df1, "pca13d_temp.html", selfcontained = TRUE)
+
+
+webshot2::webshot(
+  "pca13d_temp.html",
+  file = "pca13d_plot.png",
+  vwidth = 1400, vheight = 1000
 )
 ```
 
-# Exploración
-```{r}
-df1c %>% glimpse()
-df1c %>% count(species)
-df1c %>% count(island)
-df1c %>% count(sex)
+```{r pca13d-screenshot, results='asis', fig.align='center', echo=FALSE, warning = FALSE, message = FALSE}
+knitr::include_graphics("pca13d_plot.png")
+```
+
+```{r, echo = FALSE , warning = FALSE}
+fig <- plot_ly(
+  datos_pca,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~species,
+  colors = c('#BF382A', '#0C4B8E', '#E3AA00')  
+) %>%
+  add_markers(size = 4) %>%
+  layout(
+    scene = list(
+      xaxis = list(title = "PC1"),
+      yaxis = list(title = "PC2"),
+      zaxis = list(title = "PC3"),
+      camera = list(eye = list(x = 1.1, y = 1.1, z = 0.8))
+    ),
+    title = "PCA 3D — Penguin Species"
+  )
+
+htmlwidgets::saveWidget(fig, "pca3d_temp.html", selfcontained = TRUE)
+
+
+webshot2::webshot(
+  "pca3d_temp.html",
+  file = "pca3d_plot.png",
+  vwidth = 1400, vheight = 1000
+)
+```
+
+```{r pca3d-screenshot, results='asis', fig.align='center', echo=FALSE, warning = FALSE, message = FALSE}
+knitr::include_graphics("pca3d_plot.png")
 ```
 
 
 
+# EXTRAS
+
+```{r, echo = FALSE , warning = FALSE, message = FALSE}
 
 
-# PCA
+df1_con_clase$species <- as.factor(df1_con_clase$species)
+datos_pca$species     <- as.factor(datos_pca$species)
 
 
+ggpairs(
+  df1_con_clase,
+  mapping = aes(color = species),
+  columns = 2:ncol(df1_con_clase)
+)
+
+ggpairs(
+  datos_pca,
+  mapping = aes(color = species),
+  columns = 1:3   
+)
 
 
+res.pca <- PCA(df1_con_clase[, -1], scale.unit = TRUE)
+
+fviz_pca_var(
+  res.pca,
+  alpha.var = "contrib",
+  col.var = "contrib",
+  gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+  title = "Influencia de las variables en PCA1 y PCA2",
+  repel = TRUE
+)
+
+fviz_pca_ind(
+  res.pca,
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+  title = "Distribución de los individuos en PCA1 y PCA2",
+  repel = TRUE
+)
 
 
+fviz_pca_biplot(
+  res.pca,
+  repel = TRUE,
+  title = "Biplot",
+  col.var = "#2E9FDF",
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07")
+)
+
+
+fviz_pca_biplot(
+  res.pca,
+  repel = TRUE,
+  col.var = "blue",
+  col.ind = df1_con_clase$species,
+  palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+  addEllipses = TRUE,
+  ellipse.level = 0.95,
+  title = "Biplot con elipses por especie"
+)
+```
+```markdown
+
+El Análisis de Componentes Principales permitió reducir la dimensionalidad
+del conjunto de datos sin pérdida significativa de información. Los dos
+primeros componentes principales explicaron el 88.2 % de la varianza total,
+lo que evidencia que la estructura de los datos puede describirse
+adecuadamente en un espacio bidimensional.
+
+El primer componente principal estuvo asociado principalmente con el
+tamaño corporal de los pingüinos, integrando variables como la longitud
+de la aleta, la masa corporal y la longitud del pico. El segundo componente
+capturó variaciones relacionadas con la morfología del pico, particularmente
+su profundidad y longitud.
+
+La proyección de los individuos en el espacio definido por los dos primeros
+componentes mostró una clara diferenciación entre las especies, destacando
+la separación de la especie Gentoo respecto a Adelie y Chinstrap. Estos
+resultados concuerdan con las diferencias morfológicas conocidas entre las
+especies, lo que respalda la validez del análisis realizado.
+
+En conjunto, los resultados indican que el PCA es una herramienta adecuada
+para explorar y resumir la variabilidad morfológica de los pingüinos, así
+como para identificar patrones asociados a la clasificación por especie.
+```
 
 
 # T-SNE
@@ -112,15 +688,15 @@ df1c %>% count(sex)
 ## convirtiendo distancias en probabilidades.
 
 # t-SNE Básico
-```{r, results='hide', message=FALSE, warning=FALSE}
-set.seed(564)
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
 start.time <- proc.time()
-dfpeng_tsne <- df1c %>% select(where(is.numeric)) %>% scale() %>% tsne()
+dfpeng_tsne <- df1 %>% select(where(is.numeric)) %>% scale() %>% tsne()
 proc.time() - start.time
 ```
 
-```{r}
-datos <- data.frame(tSNE1 = dfpeng_tsne[,1], tSNE2 = dfpeng_tsne[,2], species = df$species)
+```{r, echo=FALSE}
+datos <- data.frame(tSNE1 = dfpeng_tsne[,1], tSNE2 = dfpeng_tsne[,2], species = df1_con_clase$species)
 
 ggplot(datos, aes(x = tSNE1, y = tSNE2, color = species)) +
   geom_point(size = 1.1) +
@@ -131,15 +707,15 @@ ggplot(datos, aes(x = tSNE1, y = tSNE2, color = species)) +
 
 ## Para el caso de r también se tiene una versión de T-SNE particular más optimizada.
 
-```{r, results='hide', message=FALSE, warning=FALSE}
-set.seed(564)
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
 start.time <- proc.time()
-df_Rtsne <- df1c %>% select(where(is.numeric)) %>% scale() %>% Rtsne()
+df_Rtsne <- df1 %>% select(where(is.numeric)) %>% scale() %>% Rtsne()
 proc.time() - start.time
 ```
 
-```{r}
-datos1 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df$species)
+```{r, echo=FALSE}
+datos1 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df1_con_clase$species)
 
 ggplot(datos1, aes(x = Rtsne1, y = Rtsne2, color = species)) +
   geom_point(size = 1.1) + labs(title = "Penguins: Rtsne")
@@ -147,11 +723,11 @@ ggplot(datos1, aes(x = Rtsne1, y = Rtsne2, color = species)) +
 
 
 #T-SNE 3D
-```{r, results='hide', message=FALSE, warning=FALSE}
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 
-set.seed(564)
+set.seed(123)
 
-df_tsne3 <- df1c %>%
+df_tsne3 <- df1 %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   tsne(k = 3)
@@ -160,7 +736,7 @@ tsne_df3 <- data.frame(
   tSNE1 = df_tsne3[, 1],
   tSNE2 = df_tsne3[, 2],
   tSNE3 = df_tsne3[, 3],
-  species = factor(df$species)
+  species = factor(df1_con_clase$species)
 )
 
 colors <- c("#F58231", "#911EB4", "#1eb43a")
@@ -206,17 +782,17 @@ webshot2::webshot(
 )
 ```
 
-```{r tsne3d-screenshot, results='asis', fig.align='center'}
+```{r tsne3d-screenshot, results='asis', fig.align='center', echo=FALSE, warning = FALSE, message = FALSE}
 
 knitr::include_graphics("tsne3d_plot.png")
 ```
 
 #R T-SNE 3D
-```{r, results='hide', message=FALSE, warning=FALSE}
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 
-set.seed(564)
+set.seed(123)
 
-df_Rtsne3 <- df1c %>%
+df_Rtsne3 <- df1 %>%
   dplyr::select(where(is.numeric)) %>%
   scale() %>%
   Rtsne(dims = 3)
@@ -225,7 +801,7 @@ tsne_Rdf3 <- data.frame(
   tSNE1 = df_Rtsne3$Y[, 1],
   tSNE2 = df_Rtsne3$Y[, 2],
   tSNE3 = df_Rtsne3$Y[, 3],
-  species = factor(df$species)
+  species = factor(df1_con_clase$species)
 )
 
 colors <- c("#F58231", "#911EB4", "#1eb43a")
@@ -272,7 +848,7 @@ webshot2::webshot(
 
 ```
 
-```{r rtsne3d-screenshot, results='asis', fig.align='center'}
+```{r rtsne3d-screenshot, results='asis', fig.align='center', echo=FALSE, warning = FALSE, message = FALSE}
 # ---- Insert screenshot into PDF ----
 knitr::include_graphics("rtsne3d_plot.png")
 ```
@@ -283,24 +859,24 @@ knitr::include_graphics("rtsne3d_plot.png")
 ## Aquí podemos ver que se pueden modificar de manera particular los parámetros de T-SNE para poder obtener resultados más 
 ## particulares y con variaciones determinadas.
 
-```{r, results='hide', message=FALSE, warning=FALSE}
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 tsne_params <- expand.grid(perplexity = c(10,15,20,25,30,50))
 
-numeric_df <- df1c %>% select(where(is.numeric))
+numeric_df <- df1 %>% select(where(is.numeric))
 
-set.seed(564)
+set.seed(123)
 tsne_res <- lapply(seq(nrow(tsne_params)), function(i) {
   tsne::tsne(X = numeric_df, max_iter = 500, perplexity = tsne_params[[1]][i])
 })
 ```
 
-```{r}
+```{r, echo=FALSE}
 d1 <- rbindlist(lapply(seq(nrow(tsne_params)), function(i) {
   data.table(
     x = tsne_res[[i]][,1],
     y = tsne_res[[i]][,2],
     perplexity = tsne_params[[1]][i],
-    group = df$species
+    group = df1_con_clase$species
   )
 }))
 
@@ -314,9 +890,9 @@ ggplot(d1) +
 
 ## Lo mismo se puede hacer para R T-SNE.
 
-```{r, results='hide', message=FALSE, warning=FALSE}
-set.seed(564)
-Rtsne_params3 <- expand.grid(perplexity=c(10,15,20,30), eta=c(10,50,100,150,200))
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+Rtsne_params3 <- expand.grid(perplexity=c(20,30), eta=c(100,150))
 
 Rtsne_res3 <- lapply(seq(nrow(Rtsne_params3)), function(i) {
   Rtsne(
@@ -331,14 +907,14 @@ Rtsne_res3 <- lapply(seq(nrow(Rtsne_params3)), function(i) {
 })
 ```
 
-```{r}
+```{r, echo=FALSE}
 d4 <- rbindlist(lapply(seq(nrow(Rtsne_params3)), function(i) {
   data.table(
     x = Rtsne_res3[[i]]$Y[,1],
     y = Rtsne_res3[[i]]$Y[,2],
     perplexity = Rtsne_params3[[1]][i],
     eta = Rtsne_params3[[2]][i],
-    group = df$species
+    group = df1_con_clase$species
   )
 }))
 
@@ -353,8 +929,8 @@ ggplot(d4) +
 ## Finalmente podemos agarrar la variante con los parámetros que nos parezca que hayan dado el mejor resultado y analizarlos
 ## en particular.
 
-```{r}
-datos2 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df$species)
+```{r, echo=FALSE}
+datos2 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df1_con_clase$species)
 
 ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = species)) +
   geom_point(size = 1.5) +
@@ -375,19 +951,19 @@ ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = species)) +
 
 # UMAP Básico
 
-```{r, results='hide', message=FALSE, warning=FALSE}
-df_umap <- df1c %>%
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
+df_umap <- df1 %>%
   select(where(is.numeric)) %>%
   scale() %>%
   umap()
 
 str(df_umap)
 
-datos <- data.frame(UMAP1=df_umap[,1], UMAP2=df_umap[,2], species=df$species)
+datos <- data.frame(UMAP1=df_umap[,1], UMAP2=df_umap[,2], species=df1_con_clase$species)
 head(datos)
 ```
 
-```{r}
+```{r, echo=FALSE}
 ggplot(datos, aes(x = UMAP1, y = UMAP2, color = species)) +
   geom_point(size = 2) +
   labs(title="Penguins: UMAP")
@@ -398,10 +974,10 @@ ggplot(datos, aes(x = UMAP1, y = UMAP2, color = species)) +
 
 ## Con la libreria tydimodels de r podemos hacer UMAP tambien.
 
-```{r, results='hide', message=FALSE, warning=FALSE}
-df1c <- df1c %>% select(-sex, -island)
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 
-umap_rec <- recipe(~., data=df1c) %>%
+
+umap_rec <- recipe(~., data=df1_con_clase) %>%
   update_role(species, new_role="id") %>%
   step_normalize(all_predictors()) %>%
   step_umap(all_predictors())
@@ -410,7 +986,7 @@ umap_res <- prep(umap_rec)
 umap_res
 ```
 
-```{r}
+```{r, echo=FALSE}
 juice(umap_res) %>%
   ggplot(aes(UMAP1, UMAP2)) +
   geom_point(aes(color=species), size=1.5) +
@@ -419,9 +995,9 @@ juice(umap_res) %>%
 
 # 3D UMAP
 
-```{r, results='hide', message=FALSE, warning=FALSE}
+```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 
-df_umap3 <- df1c %>%
+df_umap3 <- df1 %>%
   select(where(is.numeric)) %>%
   scale() %>%
   umap(n_components = 3)
@@ -430,7 +1006,7 @@ umap_df3 <- data.frame(
   UMAP1 = df_umap3[,1],
   UMAP2 = df_umap3[,2],
   UMAP3 = df_umap3[,3],
-  species = factor(df$species)
+  species = factor(df1_con_clase$species)
 )
 
 colors <- c("#F58231", "#911EB4", "#3fb41e")
@@ -462,7 +1038,7 @@ webshot2::webshot(
 )
 ```
 
-```{r umap3d-screenshot, results='asis', fig.align='center'}
+```{r umap3d-screenshot, results='asis', fig.align='center', echo=FALSE, warning = FALSE, message = FALSE}
 knitr::include_graphics("umap3d_plot.png")
 ```
 
@@ -472,11 +1048,11 @@ knitr::include_graphics("umap3d_plot.png")
 ## muy particulares.
 
 
-```{r}
-umap_params <- expand.grid(n_neighbors=c(10,20,50,100),
-                           min_dist=c(0.5,0.75,1.1))
+```{r, echo=FALSE}
+umap_params <- expand.grid(n_neighbors=c(100,150),
+                           min_dist=c(0.75,1.1))
 
-numeric_df <- df1c %>% select(where(is.numeric))
+numeric_df <- df1 %>% select(where(is.numeric))
 
 umaps <- lapply(seq(nrow(umap_params)), function(i) {
   umap(X=numeric_df,
@@ -489,7 +1065,7 @@ d <- rbindlist(lapply(seq(nrow(umap_params)), function(i) {
     x=umaps[[i]][,1], y=umaps[[i]][,2],
     n_neighbors=umap_params$n_neighbors[i],
     min_dist=umap_params$min_dist[i],
-    group=df$species
+    group=df1_con_clase$species
   )
 }))
 
@@ -508,9 +1084,9 @@ p
 
 ## Nuevamente seleccionamos los parámetros que nos hayan parecido mejores para nuestro modelo final.
 
-```{r}
+```{r, echo=FALSE}
 Final_plot <- d %>%
-  filter(min_dist==0.5, n_neighbors==100) %>%
+  filter(min_dist==0.75, n_neighbors==150) %>%
   ggplot(aes(x=x, y=y, col=group)) +
   geom_scattermore(pointsize=1.1) +
   theme(axis.text=element_blank(), axis.ticks=element_blank(),

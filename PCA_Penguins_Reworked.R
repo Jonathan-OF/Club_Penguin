@@ -2,6 +2,7 @@
 install.packages("ggcorrplot")
 install.packages("tinytex")
 install.packages("rmarkdown")
+install.packages("kableExtra")
 tinytex::install_tinytex()
 
 library(learnr)
