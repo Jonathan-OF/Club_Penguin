@@ -19,12 +19,17 @@ always_allow_html: true
 
 # Descripción
 
-El dataset "penguins.csv" es un conjunto de datos sobre las mediciones biométricas de pingüinos en las Islas Palmer, Antártida. Contiene 344 registros y 8 variables.
+El dataset penguins.csv contiene mediciones biométricas de pingüinos recolectadas en las Islas Palmer (Antártida). Contiene 344 registros y 8 variables. El objetivo de este trabajo es explorar, describir y reducir la dimensionalidad de las variables numéricas para identificar patrones y relaciones entre individuos, y evaluar si estas mediciones permiten distinguir especies mediante técnicas como PCA, t-SNE y UMAP.
 
 # Variables
 
+El dataset incluye variables categóricas, por ejemplo:
+
 1.  species: Categórica. La especie del pingüino (Adelie, Chinstrap o Gentoo).
 2.  island: Categórica. La isla de observación (Torgersen, Biscoe o Dream).
+
+Además, incluye variables numéricas relacionadas con rasgos físicos, como:
+
 3.  bill_length_mm: Numérica (float). Longitud del pico en milímetros. 
 4.  bill_depth_mm: Numérica (float). Profundidad del pico en milímetros. 
 5.  flipper_length_mm: Numérica (float). Longitud de la aleta en milímetros. 
@@ -32,6 +37,7 @@ El dataset "penguins.csv" es un conjunto de datos sobre las mediciones biométri
 7.  sex: Categórica. El sexo del pingüino (male o female).
 8.  year: Numérica (integer). El año de la observación.
 
+Estas variables permiten comparar individuos, analizar distribuciones y explorar qué mediciones aportan más información para separar especies
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -94,6 +100,11 @@ df<-read.csv("penguins.csv")
 
 # Explorando el dataset 
 
+```markdown
+Verificamos el tamaño del dataset para conocer cuántas observaciones y variables se tienen. Esto ayuda a dimensionar el análisis y a decidir qué técnicas son viables.
+Se cuantifican los NA por variable y se visualizan para decidir el tratamiento: eliminar filas incompletas (si son pocas) o imputar (si es necesario). En este proyecto se trabaja con variables numéricas y se eliminan nulos en el dataframe numérico para evitar errores en PCA/t-SNE/UMAP.  
+```
+
 ```{r, echo = FALSE}
 
 # Dimensión 
@@ -145,6 +156,10 @@ df <- df %>%
 
 ```
 
+```markdown
+Se transforma species a factor para usarla como variable de clasificación/etiqueta en las gráficas comparativas.
+```
+
 ```{r, include = FALSE}
 # Número de especies 
 
@@ -152,6 +167,10 @@ df %>% count(species)
 
 table(df$species)
 
+```
+
+```markdown
+Se seleccionan únicamente variables numéricas, se excluye year (porque no describe biometría directamente) y se eliminan filas con valores faltantes para trabajar con un conjunto consistente en los métodos de reducción de dimensionalidad.
 ```
 
 ```{r, echo = FALSE}
@@ -174,6 +193,10 @@ df1 <- df %>%
   select(where(is.numeric)) %>%  # solo variables numéricas
   select(-year) %>%              # excluimos el año 
   drop_na()                      # eliminamos los valores nulos 
+```
+
+```markdown
+Se construyen histogramas para cada variable numérica con el fin de observar su forma de distribución (simetría, colas, posibles sesgos), así como rangos típicos y presencia de posibles valores extremos. Esta exploración permite entender qué tan comparables son las escalas y por qué más adelante es importante normalizar antes de aplicar PCA/UMAP/t-SNE.   
 ```
 
 #  Histogramas
@@ -226,6 +249,11 @@ df1_con_clase <- df %>%
 ```
 
 # Comparación por la variable de clasificación: species
+
+```markdown
+Se transforman los datos para graficar todas las variables de manera consistente.
+Se comparan las distribuciones por especie variable por variable para ver cuáles rasgos discriminan mejor.
+```
 
 ```{r, echo = FALSE, warning = FALSE, message = FALSE}
 df1_long <- df1_con_clase %>% 
@@ -373,6 +401,10 @@ peng_recipe
 
 # PCA 
 
+```markdown
+Se define un flujo donde species se trata como identificador (no predictor), se convierten categóricas a dummies y se normalizan predictores.
+```
+
 ```{r, include = FALSE, warning = FALSE}
 
 peng_pca <- prep(peng_recipe)
@@ -439,6 +471,10 @@ datos_pca
 ```
 
 # Grafica de los primeros dos componentes
+
+```markdown
+Se visualizan individuos en el plano de los dos primeros componentes para ver estructura y separación por especies. Se añade la varianza explicada para interpretar cuánto del “contenido” original se conserva en 2D.  
+```
 
 ```{r, include = FALSE , warning = FALSE}
 
@@ -688,6 +724,11 @@ como para identificar patrones asociados a la clasificación por especie.
 ## convirtiendo distancias en probabilidades.
 
 # t-SNE Básico
+
+```markdown
+Se ejecuta una versión básica y otra optimizada (Rtsne), usando variables numéricas escaladas para evitar que una variable domine por escala.
+```
+
 ```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 set.seed(123)
 start.time <- proc.time()
@@ -859,6 +900,10 @@ knitr::include_graphics("rtsne3d_plot.png")
 ## Aquí podemos ver que se pueden modificar de manera particular los parámetros de T-SNE para poder obtener resultados más 
 ## particulares y con variaciones determinadas.
 
+```markdown
+El objetivo es encontrar un equilibrio entre: separación visible de grupos, estabilidad visual, y que no aparezcan “islas” artificiales por mala configuración.
+```
+
 ```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 tsne_params <- expand.grid(perplexity = c(10,15,20,25,30,50))
 
@@ -926,8 +971,9 @@ ggplot(d4) +
 
 # Modelo Final
 
-## Finalmente podemos agarrar la variante con los parámetros que nos parezca que hayan dado el mejor resultado y analizarlos
-## en particular.
+```markdown
+Se elige una configuración que produce una visualización clara y se presenta como resultado final, recordando que en t-SNE las distancias globales no deben interpretarse literalmente; lo más importante es la estructura local y la separación cualitativa.
+```
 
 ```{r, echo=FALSE}
 datos2 <- data.frame(Rtsne1 = df_Rtsne$Y[,1], Rtsne2 = df_Rtsne$Y[,2], species = df1_con_clase$species)
@@ -946,10 +992,17 @@ ggplot(datos2, aes(x = Rtsne1, y = Rtsne2, color = species)) +
 
 # UMAP
 
-## UMAP es nuestra tercera herramienta de reducción de dimensionalidad, aunque similar a T-SNE UMAP tiene varias ventajas sobre T-SNE
+```markdown
+UMAP es otra técnica no lineal que suele ser más rápida y tiende a conservar mejor parte de la estructura global que t-SNE, además de dar resultados estables con buen ajuste de hiperparámetros.
+```
+## UMAP es nuestra tercera herramienta de reducción de dimensionalidad, aunque es similar a T-SNE UMAP tiene varias ventajas sobre T-SNE
 ## mayor velocidad y una mejor conservaci ́on de la estructura global de los datos.
 
 # UMAP Básico
+
+```markdown
+Se escala la matriz numérica y se calcula UMAP en 2D; después se grafica por especie para evaluar separación.
+```
 
 ```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 numeric_mat <- df1 %>% dplyr::select(where(is.numeric)) %>% as.matrix()
@@ -1067,6 +1120,13 @@ knitr::include_graphics("umap3d_plot.png")
 ## De la misma manera que en T-SNE se pueden modificar de manera fina los parámetros del proceso para obtener resultados 
 ## muy particulares.
 
+```markdown
+Se evalúan combinaciones de:
+-n_neighbors (qué tan “local” o “global” es la estructura que intenta conservar),
+-min_dist (qué tan compactos quedan los grupos).
+Esto permite comparar visualmente configuraciones y elegir una que tenga buena separación sin distorsionar demasiado.
+```
+
 
 ```{r, echo=FALSE}
 umap_params <- expand.grid(n_neighbors = c(10, 20, 50, 100), min_dist = c(0.5, 0.75, 1.1))
@@ -1106,6 +1166,10 @@ print(p)
 ```
 
 # Modelo Final
+
+```markdown
+Se selecciona el par de hiperparámetros que mejor representa la separación por especie y se presenta como resultado final. En su documento, se filtra explícitamente min_dist == 0.75 y n_neighbors == 150 como configuración final del gráfico.
+```
 
 ```{r, results='hide', message=FALSE, warning=FALSE, include=FALSE}
 umap_params1 <- expand.grid(n_neighbors = c(50, 100, 150, 200), min_dist = c(0.5, 0.75, 1.1))
@@ -1172,3 +1236,7 @@ print(Final_plot)
 
 ## UMAP resulto ser más práctico para trabajar nuestro conjunto de datos, además de que durante la manipulación de la manipulación
 ## se obtuvieron agrupaciones muy interesantes que pueden ayudar a sacar interpretaciones y correlaciones de los datos.
+
+```markdown
+En este análisis, UMAP resultó práctico y permitió observar agrupamientos útiles para interpretar patrones del dataset. La exploración de hiperparámetros ayudó a elegir una configuración que equilibra estructura local y separación visual entre especies.
+```
