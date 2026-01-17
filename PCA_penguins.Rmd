@@ -11,21 +11,27 @@ output:
     latex_engine: xelatex
 subtitle: Diplomado de métodos matemáticos y estadísticos para la Ciencia de Datos
 ---
-
 # Descripción
 
-El dataset "penguins.csv" es un conjunto de datos sobre las mediciones biométricas de pingüinos en las Islas Palmer, Antártida. Contiene 344 registros y 8 variables.
+El dataset penguins.csv contiene mediciones biométricas de pingüinos recolectadas en las Islas Palmer (Antártida). Contiene 344 registros y 8 variables. El objetivo de este trabajo es explorar, describir y reducir la dimensionalidad de las variables numéricas para identificar patrones y relaciones entre individuos, y evaluar si estas mediciones permiten distinguir especies mediante técnicas como PCA, t-SNE y UMAP.
 
 # Variables
 
+El dataset incluye variables categóricas, por ejemplo:
+
 1.  species: Categórica. La especie del pingüino (Adelie, Chinstrap o Gentoo).
 2.  island: Categórica. La isla de observación (Torgersen, Biscoe o Dream).
+
+Además, incluye variables numéricas relacionadas con rasgos físicos, como:
+
 3.  bill_length_mm: Numérica (float). Longitud del pico en milímetros. 
 4.  bill_depth_mm: Numérica (float). Profundidad del pico en milímetros. 
 5.  flipper_length_mm: Numérica (float). Longitud de la aleta en milímetros. 
 6.  body_mass_g: Numérica (float). Masa corporal en gramos. 
 7.  sex: Categórica. El sexo del pingüino (male o female).
 8.  year: Numérica (integer). El año de la observación.
+
+Estas variables permiten comparar individuos, analizar distribuciones y explorar qué mediciones aportan más información para separar especies
 
 
 ```{r setup, include = FALSE}
@@ -113,6 +119,9 @@ df <- df %>%
   mutate(species = as.factor(species))
 
 ```
+```markdown
+Se transforma species a factor para usarla como variable de clasificación/etiqueta en las gráficas comparativas.
+```
 
 ```{r, include = FALSE}
 # Número de especies 
@@ -144,6 +153,11 @@ df1 <- df %>%
   select(-year) %>%              # excluimos el año 
   drop_na()                      # eliminamos los valores nulos 
 ```
+
+```markdown
+Se seleccionan únicamente variables numéricas, se excluye year (porque no describe biometría directamente) y se eliminan filas con valores faltantes para trabajar con un conjunto consistente en los métodos de reducción de dimensionalidad.
+```
+
 
 #  Histogramas
 ```{r, echo = FALSE}
