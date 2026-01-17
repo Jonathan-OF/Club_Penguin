@@ -24,6 +24,8 @@ library(GGally)
 library(factoextra)
 library(opticskxi)
 library(cluster)
+library(flexmix)
+library(mclust)
 ```
 
 ```{r, include=FALSE}
@@ -153,4 +155,5 @@ my_model
 ```{r}
 table(clusters(my_model))
 ```
+
 
