@@ -1,0 +1,156 @@
+---
+title: "Penguins – DBSCAN / OPTICS / HDBSCAN"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(dbscan)
+library(GGally)
+library(factoextra)
+library(opticskxi)
+library(cluster)
+```
+
+```{r, include=FALSE}
+df <- read.csv("C:\\Users\\luis2\\OneDrive\\Documents\\Diplomado\\Modulo_2\\Proyecto1\\penguins.csv")
+```
+
+```{r, include=FALSE}
+df1 <- df %>%
+  select(where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+
+df1_con_clase <- df %>%
+  select(species, where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+```
+
+```{r, include=FALSE}
+df1_scaled <- scale(df1)
+```
+
+# Gaussian Mixture Models (mclust)
+
+```{r, include=FALSE}
+set.seed(123)
+
+BIC <- mclustBIC(df1_scaled)
+```
+
+```{r, echo=FALSE}
+plot(BIC)
+```
+
+# Modelo óptimo según BIC
+```{r, include=FALSE}
+GMM_model <- Mclust(df1_scaled, x = BIC)
+```
+
+```{r, echo=FALSE}
+plot(GMM_model, what = "classification")
+```
+
+```{r, echo=FALSE}
+plot(
+  GMM_model,
+  what = "density",
+  type = "hdr",
+  data = df1_scaled,
+  points.cex = 0.5
+)
+```
+
+```{r, echo=FALSE}
+plot(GMM_model, what = "classification", fillEllipses = TRUE)
+```
+
+# Reducción de dimensión supervisada (MclustDR)
+
+```{r, include=FALSE}
+set.seed(123)
+
+Clust_GMM <- MclustDR(GMM_model)
+```
+
+```{r, echo=FALSE}
+plot(Clust_GMM, what = "pairs")
+```
+
+```{r, echo=FALSE}
+plot(Clust_GMM, what = "boundaries", ngrid = 200)
+```
+
+# Comparación con la especie real
+```{r, echo=FALSE}
+table(df1_con_clase$species, GMM_model$classification)
+```
+
+# Model-based clustering no gaussiano (flexmix)
+
+```{r, include=FALSE}
+set.seed(123)
+
+models <- stepFlexmix(
+  df1_scaled ~ 1,
+  k = 1:8,
+  model = FLXMCmvnorm(),
+  nrep = 100,
+  drop = FALSE
+)
+```
+```{r}
+models
+```
+
+
+```{r, echo=FALSE}
+plot(models)
+```
+
+```{r, include=FALSE}
+bestmodel_BIC <- getModel(models, "BIC")
+bestmodel_AIC <- getModel(models, "AIC")
+bestmodel_ICL <- getModel(models, "ICL")
+```
+
+```{r}
+bestmodel_BIC
+bestmodel_AIC
+bestmodel_ICL
+```
+
+# Forzando 3 clusters
+
+```{r, include=FALSE}
+my_model <- flexmix(
+  df1_scaled ~ 1,
+  k = 3,
+  model = FLXMCmvnorm()
+)
+```
+
+```{r, include=FALSE}
+my_model
+```
+
+```{r}
+table(clusters(my_model))
+```
+

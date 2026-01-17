@@ -1,0 +1,214 @@
+---
+title: "Penguins – DBSCAN / OPTICS / HDBSCAN"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(dbscan)
+library(GGally)
+library(factoextra)
+library(opticskxi)
+library(cluster)
+```
+
+```{r, include=FALSE}
+df <- read.csv("C:\\Users\\luis2\\OneDrive\\Documents\\Diplomado\\Modulo_2\\Proyecto1\\penguins.csv")
+```
+
+```{r, include=FALSE}
+df1 <- df %>%
+  select(where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+
+df1_con_clase <- df %>%
+  select(species, where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+```
+
+```{r, include=FALSE}
+df1_scaled <- scale(df1)
+```
+
+# Elección de eps y minPts (kNN distance)
+
+```{r}
+set.seed(123)
+kNNdistplot(df1_scaled, k = 11)
+abline(h = c(1.2, 1.8), lty = 2, col = "blue")
+```
+
+```{r}
+tibble(
+  dist = sort(kNNdist(df1_scaled, k = 11)),
+  index = seq_along(dist)
+) %>%
+  ggplot(aes(index, dist)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, 3)) +
+  geom_hline(yintercept = c(1.2, 1.8), linetype = "dashed", col = "blue")
+```
+
+```{r}
+quantile(
+  kNNdist(df1_scaled, k = 11),
+  c(0.7, 0.75, 0.8, 0.9, 0.95, 0.99)
+)
+
+```
+
+# DBSCAN
+
+```{r, include=FALSE}
+db1 <- dbscan(df1_scaled, eps = 1.5, minPts = 11)
+db1
+```
+
+```{r, echo=FALSE}
+fviz_cluster(db1, data = df1_scaled)
+```
+
+# Grid Search DBSCAN
+
+```{r, include=FALSE}
+param_grid <- expand.grid(
+  eps = seq(0.5, 2.5, 0.1),
+  minPts = seq(5, 20, 2)
+)
+```
+
+```{r, include=FALSE}
+dbscan_results <- param_grid %>%
+  mutate(
+    model = pmap(
+      list(eps, minPts),
+      ~ dbscan(df1_scaled, eps = ..1, minPts = ..2)
+    ),
+    n_clusters = map_int(model, ~ length(unique(.x$cluster[.x$cluster > 0]))),
+    noise = map_int(model, ~ sum(.x$cluster == 0))
+  )
+```
+
+```{r, include=FALSE}
+dbscan_results %>%
+  arrange(desc(n_clusters), noise) %>%
+  head()
+
+```
+
+# PCA + DBSCAN
+
+```{r, include=FALSE}
+pca_df1 <- recipe(~ ., data = df1) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), threshold = 0.9) %>%
+  prep() %>%
+  bake(new_data = NULL)
+```
+
+```{r, echo=FALSE}
+ggpairs(pca_df1)
+```
+
+```{r, include=FALSE}
+pca_scaled <- scale(pca_df1)
+```
+
+```{r, echo=FALSE}
+set.seed(123)
+kNNdistplot(pca_scaled, k = 11)
+```
+
+```{r}
+quantile(
+  kNNdist(pca_scaled, k = 11),
+  c(0.7, 0.8, 0.9, 0.95)
+)
+```
+
+```{r, echo=FALSE}
+clust_pca <- dbscan(pca_scaled, eps = 1.2, minPts = 11)
+fviz_cluster(clust_pca, data = pca_scaled)
+```
+
+# OPTICS
+
+```{r, echo=FALSE}
+opt <- optics(df1_scaled, minPts = 11)
+plot(opt)
+```
+
+```{r, echo=FALSE}
+opt_xi <- extractXi(opt, xi = 0.05)
+plot(opt_xi)
+```
+
+# OPTICS + KXi TUNING
+
+```{r, include=FALSE}
+kxi_params <- expand.grid(
+  n_xi = seq(0.01, 0.3, 0.01),
+  dim_red = "PCA",
+  dist = "euclidean",
+  pts = c(10, 20, 30),
+  n_dimred_comp = 2
+)
+```
+
+```{r, echo=FALSE}
+kxi_res <- opticskxi_pipeline(df1_scaled, kxi_params)
+ggplot_kxi_metrics(kxi_res)
+```
+
+```{r, include=FALSE}
+best_kxi <- get_best_kxi(kxi_res)
+table(best_kxi$clusters)
+```
+
+# HDBSCAN
+
+```{r, include=FALSE}
+set.seed(123)
+hdb <- hdbscan(df1_scaled, minPts = 11)
+```
+
+```{r, echo=FALSE}
+plot(hdb)
+```
+
+```{r, include=FALSE}
+datos_plot <- data.frame(df1_scaled, cluster = as.factor(hdb$cluster))
+```
+
+```{r, echo=FALSE}
+ggplot(datos_plot, aes(x = bill_length_mm, y = flipper_length_mm, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(title = "HDBSCAN - Penguins")
+```
+
+```{r, echo=FALSE}
+hullplot(df1_scaled, hdb, main = "HDBSCAN")
+```
+
+# Comparación con especie real
+
+```{r}
+table(df1_con_clase$species, hdb$cluster)
+```
