@@ -1,0 +1,841 @@
+---
+title: "Untitled"
+author: "Luis Valencia"
+date: "2026-01-20"
+output: html_document
+---
+
+---
+title: "Penguins – Clustering"
+author: |
+  Equipo 7  
+  Integrantes:  
+  Fajardo Zavala Yendali Viridiana  
+  González Rivas José Rafael  
+  Maldonado Zamora Silvia Viridiana  
+  Olivera Flores Jonathan  
+  Valencia Quiroz Luis Roberto
+
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(dbscan)
+library(GGally)
+library(factoextra)
+library(opticskxi)
+library(cluster)
+
+library(clue)
+library(mclust)
+library(tidyclust)    
+library(FactoMineR)
+library(mlr)
+library(GGally)
+library(ClusterR)
+library(vegan)
+library(NbClust)
+library(gridExtra)
+library(grid)
+library(lattice)
+library(igraph)
+library(parameters)   
+library(pvclust)
+library(hopkins)
+library(plotly)
+
+library(flexmix)
+```
+
+```{r, include=FALSE}
+df <- read.csv("C:\\Users\\luis2\\OneDrive\\Documents\\Diplomado\\Modulo_2\\Proyecto1\\penguins.csv")
+```
+
+```{r, include=FALSE}
+df1 <- df %>%
+  select(where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+
+df1_con_clase <- df %>%
+  select(species, where(is.numeric)) %>%
+  select(-year) %>%
+  drop_na()
+```
+
+```{r, include=FALSE}
+df1_scaled <- as.data.frame(scale(df1))
+```
+
+# Determinar número de clusters
+```{r, include=FALSE}
+set.seed(123)
+
+nc <- n_clusters(
+  df1,
+  standardize = TRUE,
+  include_factors = FALSE,
+  package = c("easystats", "NbClust", "mclust"),
+  fast = TRUE,
+  nbclust_method = "kmeans",
+  n_max = 10
+)
+```
+
+```{r, echo=FALSE}
+plot(nc)
+```
+# Elbow
+```{r, include=FALSE}
+set.seed(123)
+elbow <- n_clusters_elbow(
+  df1,
+  standardize = TRUE,
+  include_factors = FALSE,
+  clustering_function = stats::kmeans,
+  n_max = 10
+)
+```
+
+```{r, echo=FALSE}
+plot(elbow)
+```
+
+# Gap statistic
+```{r, include=FALSE}
+set.seed(123)
+gap <- n_clusters_gap(
+  df1,
+  standardize = TRUE,
+  include_factors = FALSE,
+  clustering_function = stats::kmeans,
+  n_max = 10,
+  gap_method = "firstSEmax"
+)
+```
+
+```{r, echo=FALSE}
+plot(gap)
+```
+
+# Silhouette
+```{r, include=FALSE}
+set.seed(123)
+sil <- n_clusters_silhouette(
+  df1,
+  standardize = TRUE,
+  include_factors = FALSE,
+  clustering_function = stats::kmeans,
+  n_max = 10
+)
+```
+
+```{r}
+sil
+```
+
+# Estimaciones DBSCAN
+
+```{r, include=FALSE}
+set.seed(123)
+dbscan <- n_clusters_dbscan(
+  df1,
+  standardize = TRUE,
+  include_factors = FALSE,
+  method = c("kNN", "SS"),
+  min_size = 0.1,
+  eps_n = 50,
+  eps_range = c(0.1, 3)
+)
+```
+
+```{r, echo=FALSE}
+plot(dbscan)
+```
+
+# K-Means con tidyclust + tune_cluster
+```{r, include=FALSE}
+rec_df <- recipe(~., data = df1_con_clase) %>%
+  update_role(species, new_role = "id") %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_nominal_predictors()) 
+
+rec_df
+
+# Especificación de kmeans para tuning
+kmeans_spec <- tidyclust::k_means(num_clusters = tune()) %>%
+  set_mode("partition") %>%
+  set_engine("stats")   
+
+# Workflow
+kmeans_wf <- workflow() %>%
+  add_recipe(rec_df) %>%
+  add_model(kmeans_spec)
+
+# Grid manual
+grid <- tibble(num_clusters = 1:10)
+
+# Resamples bootstrap
+set.seed(123)
+boots <- bootstraps(df1_con_clase, times = 10)
+
+# Tuning con tune_cluster
+res <- tune_cluster(
+  kmeans_wf,
+  resamples = boots,
+  grid = grid,
+  metrics = cluster_metric_set(sse_within_total, sse_total, sse_ratio)
+)
+
+res_metrics <- collect_metrics(res) %>% print(n = Inf)
+```
+
+```{r, echo=FALSE}
+res_metrics %>%
+  filter(.metric == "sse_ratio") %>%
+  ggplot(aes(x = num_clusters, y = mean)) +
+  geom_point(size = 2) +
+  geom_line() +
+  theme_minimal() +
+  ylab("mean WSS/TSS ratio") +
+  xlab("Número de clusters") +
+  scale_x_continuous(breaks = 1:10)
+```
+# Validación cruzada con vfold_cv
+```{r, include=FALSE}
+df_cv <- vfold_cv(df1_con_clase, v = 10)
+
+# Grid regular sencillo
+clust_num_grid <- tibble(num_clusters = 1:10)
+
+res1 <- tune_cluster(
+  kmeans_wf,
+  resamples = df_cv,
+  grid = clust_num_grid,
+  control = control_grid(save_pred = TRUE, extract = identity),
+  metrics = cluster_metric_set(sse_within_total, sse_total, sse_ratio)
+)
+
+res1_metrics <- res1 %>% collect_metrics() %>% print(n = Inf)
+```
+
+```{r, echo=FALSE}
+res1_metrics %>%
+  filter(.metric == "sse_ratio") %>%
+  ggplot(aes(x = num_clusters, y = mean)) +
+  geom_point(size = 2) +
+  geom_line() +
+  theme_minimal() +
+  ylab("mean WSS/TSS ratio cv") +
+  xlab("Número de clusters") +
+  scale_x_continuous(breaks = 1:10)
+```
+
+# Silhouette
+```{r, include=FALSE}
+k.max <- 10
+sil_avg <- numeric(k.max)
+
+set.seed(123)
+for (k in 2:k.max) {
+  kmeans_result <- stats::kmeans(df1_scaled, centers = k, nstart = 25)
+  sil_info <- cluster::silhouette(kmeans_result$cluster, dist(df1_scaled))
+  sil_avg[k] <- mean(sil_info[, "sil_width"])
+}
+```
+
+```{r, echo=FALSE}
+plot(2:k.max, sil_avg[2:k.max], type = "b",
+     xlab = "Number of clusters (k)",
+     ylab = "Average Silhouette Width",
+     main = "Silhouette Method for Optimal k")
+```
+
+```{r, include=FALSE}
+optimal_k <- which.max(sil_avg[2:k.max]) + 1
+```
+
+```{r}
+paste("Optimal number of clusters (k):", optimal_k)
+```
+
+# Otras gráficas 
+
+```{r, echo=FALSE}
+fviz_nbclust(df1, kmeans, method = "wss") +
+  labs(x = "Número de clusters", y = "Total suma de cuadrados intra clusters", title = "Número óptimo de clusters (WSS)")
+```
+
+```{r, echo=FALSE}
+opt <- tryCatch(
+  { Optimal_Clusters_KMeans(df1, max_clusters = 10, plot_clusters = TRUE, criterion = "WCSSE") },
+  error = function(e) { message("Optimal_Clusters_KMeans(WCSSE) falló: ", e$message); NULL }
+)
+```
+
+
+```{r, echo=FALSE}
+opt1 <- tryCatch(
+  { Optimal_Clusters_KMeans(df1, max_clusters = 10, plot_clusters = TRUE, criterion = "silhouette") },
+  error = function(e) { message("Optimal_Clusters_KMeans(silhouette) falló: ", e$message); NULL }
+)
+```
+
+```{r, echo=FALSE}
+opt2 <- tryCatch(
+  { Optimal_Clusters_KMeans(df1, max_clusters = 10, plot_clusters = TRUE, criterion = "variance_explained", fK_threshold = 0.90) },
+  error = function(e) { message("Optimal_Clusters_KMeans(variance_explained) falló: ", e$message); NULL }
+)
+```
+
+```{r, echo=FALSE}
+fviz_nbclust(df1, kmeans, method = "gap_stat") +
+  labs(x = "Número de clusters", y = "GAP", title = "Número óptimo de clusters (Gap)")
+```
+
+# cascadeKM 
+```{r, include=FALSE}
+fit <- cascadeKM(df1_scaled, 2, 10, iter = 500)
+```
+
+```{r, echo=FALSE}
+plot(fit, sortg = TRUE, grpmts.plot = TRUE)
+```
+
+# NbClust
+```{r, echo=FALSE}
+nb <- NbClust(df1, distance = "euclidean", min.nc = 2, max.nc = 10, method = "ward.D", index = "all")
+```
+
+# Comparación K = 2,3,4
+```{r, include=FALSE}
+set.seed(123)
+k2 <- stats::kmeans(df1_scaled, centers = 2, nstart = 25)
+k3 <- stats::kmeans(df1_scaled, centers = 3, nstart = 25)
+k4 <- stats::kmeans(df1_scaled, centers = 4, nstart = 25)
+```
+
+```{r, echo=FALSE}
+p2 <- fviz_cluster(k2, geom = "point", data = df1_scaled) + ggtitle("k = 2")
+p3 <- fviz_cluster(k3, geom = "point", data = df1_scaled) + ggtitle("k = 3")
+p4 <- fviz_cluster(k4, geom = "point", data = df1_scaled) + ggtitle("k = 4")
+
+grid.arrange(p2, p3, p4, ncol = 3)
+```
+
+# Decisión (según resultados): K = 2
+```{r, echo=FALSE}
+fviz_cluster(k2, geom = "point", data = df1_scaled) + ggtitle("Número de grupos (k = 2)")
+```
+
+```{r, echo=FALSE}
+fviz_cluster(k2, data = df1_scaled,
+             palette = c("deeppink3", "magenta3"),
+             ellipse.type = "euclid",
+             star.plot = TRUE,
+             repel = TRUE,
+             ggtheme = theme_minimal()) + ggtitle("Número de grupos: 2")
+```
+
+
+```{r, echo=FALSE}
+fviz_cluster(k2, df1_scaled, ellipse.type = "norm")
+```
+
+```{r, echo=FALSE}
+fviz_cluster(k2, df1_scaled, palette = "Set2", ggtheme = theme_minimal())
+```
+
+# Añadir cluster al data.frame original escalado para boxplots
+
+```{r, include=FALSE}
+kmeans_clusters <- bind_cols(df1_scaled, cluster = k2$cluster)
+```
+
+```{r, echo=FALSE}
+kmeans_clusters %>%
+  pivot_longer(-cluster) %>%
+  ggplot(aes(x = as.factor(cluster), y = value, fill = as.factor(cluster))) +
+  geom_boxplot(show.legend = FALSE) +
+  facet_wrap(vars(name), scales = "free")
+```
+
+```{r, include=FALSE}
+kmeans_clusters %>%
+  group_by(cluster) %>%
+  summarise(num_users = n()) %>%
+  mutate(pct_users = num_users / sum(num_users))
+
+```
+
+# Tabla contra la clase real
+```{r, include=FALSE}
+TC <- table(df1_con_clase$species, k2$cluster)
+```
+
+```{r}
+TC
+```
+# Clustering (PCA)
+
+```{r, include=FALSE}
+df_pca_rec <- recipe(~ ., data = df1_con_clase) %>%
+  update_role(species, new_role = "id") %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors(), num_comp = 4)
+
+df_pca_wf <- workflow() %>%
+  add_recipe(df_pca_rec)
+
+# Hierarchical clustering via tidyclust
+df_pca_hier_fit <- df_pca_wf %>%
+  add_model(tidyclust::hier_clust(linkage_method = "ward.D")) %>%
+  fit(data = df1_con_clase)
+```
+
+```{r, echo=FALSE}
+plot(df_pca_hier_fit %>% extract_fit_engine())
+```
+
+```{r, echo=FALSE}
+try({
+  df_pca_hier_fit %>%
+    extract_fit_engine() %>%
+    fviz_dend(k = 2, main = "Dendograma basado en PCA: Liga Ward") %>%
+    plot()
+}, silent = TRUE)
+```
+
+# K-Means con engine ClusterR y tuning
+```{r, include=FALSE}
+kmeans_specific <- tidyclust::k_means(num_clusters = 2) %>%
+  set_engine("ClusterR") %>%
+  set_mode("partition")
+
+kmeans_workf <- workflow() %>%
+  add_recipe(df_pca_rec) %>%
+  add_model(kmeans_specific)
+
+kmeans_proc <- fit(kmeans_workf, data = df1_con_clase)
+```
+
+
+```{r}
+kmeans_proc
+```
+
+# Hacer tuning usando num_clusters como parámetro
+
+```{r, include=FALSE}
+kmeans_specific1 <- kmeans_specific %>% set_args(num_clusters = tune())
+
+kmeans_workf1 <- workflow() %>%
+  add_recipe(df_pca_rec) %>%
+  add_model(kmeans_specific1)
+
+set.seed(123)
+boots <- bootstraps(df1_con_clase, times = 10)
+
+tune_res <- tune_cluster(
+  kmeans_workf1,
+  resamples = boots,
+  grid = tibble(num_clusters = 1:8),
+  metrics = cluster_metric_set(sse_within_total, sse_total, sse_ratio)
+)
+```
+
+```{r}
+collect_metrics(tune_res)
+```
+
+# Extraer asignaciones / centroides
+
+```{r, include=FALSE}
+assignments <- extract_cluster_assignment(kmeans_proc)
+
+centroids <- extract_centroids(kmeans_proc)
+```
+
+```{r}
+centroids
+```
+
+```{r, include=FALSE}
+# Predecir para 10 observaciones de ejemplo (muestreo desde df1_con_clase)
+predict(kmeans_proc, new_data = slice_sample(df1_con_clase, n = 10))
+
+kmeans_summary <- kmeans_proc %>%
+  extract_fit_summary()
+kmeans_summary
+```
+
+
+# Construir tibble comparativa de etiquetas originales vs cluster asignado
+```{r, include=FALSE}
+if (!is.null(kmeans_summary$orig_labels) && !is.null(kmeans_summary$cluster_assignments)) {
+  tibble(
+    orig_labels = kmeans_summary$orig_labels,
+    standard_labels = kmeans_summary$cluster_assignments
+  ) %>% print()
+}
+```
+
+```{r}
+table(kmeans_summary$orig_labels, kmeans_summary$cluster_assignments)
+```
+
+
+```{r, include=FALSE}
+TC_CP <- table(df1_con_clase$species, if ("orig_labels" %in% names(kmeans_summary)) kmeans_summary$orig_labels else assignments$.cluster)
+```
+
+```{r}
+TC_CP
+```
+
+# Comparación clasificación por K-Means: todas las variables vs PCA 
+```{r, include=FALSE}
+class_pca <- if ("cluster_assignments" %in% names(kmeans_summary)) kmeans_summary$cluster_assignments else assignments$.cluster
+```
+
+```{r}
+table(kmeans_clusters$cluster, class_pca)
+```
+
+# Silhouette promedio
+```{r}
+try({
+  avg_sil <- silhouette_avg(kmeans_proc, new_data = df1_con_clase)
+  print(avg_sil)
+}, silent = TRUE)
+```
+
+
+# Gráficas finales (PCA + clusters)
+```{r}
+pca_cluster <- recipe(~ ., data = df1_con_clase) %>%
+  update_role(species, new_role = "id") %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors(), num_comp = 4) %>%
+  prep(df1_con_clase) %>%
+  bake(new_data = df1_con_clase)
+
+pca_clusters2 <- bind_cols(pca_cluster, cluster = k2$cluster)
+
+cluster_plot <- pca_clusters2 %>%
+  ggplot(aes(x = PC1, y = PC2, color = as.factor(cluster), shape = as.factor(cluster))) +
+  geom_point(size = 2) +
+  labs(color = "Cluster", shape = "Cluster") +
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+ggplotly(cluster_plot)
+```
+
+
+# Plot con species (para comparar cluster vs species)
+```{r, include=FALSE}
+clust_spc_plot <- pca_clusters2 %>%
+  ggplot(aes(x = PC1, y = PC2, color = species, shape = as.factor(cluster))) +
+  geom_point(size = 2, alpha = 0.8) +
+  theme_minimal()
+```
+
+```{r, echo=FALSE}
+clust_spc_plot
+```
+
+```{r, echo=FALSE}
+ggplotly(clust_spc_plot)
+```
+
+# DSCAN / OPTICS / HDBSCAN
+
+## Elección de eps y minPts (kNN distance)
+
+```{r}
+set.seed(123)
+kNNdistplot(df1_scaled, k = 11)
+abline(h = c(0.5, 1.8), lty = 2, col = "blue")
+```
+
+```{r}
+tibble(
+  dist = sort(kNNdist(df1_scaled, k = 11)),
+  index = seq_along(dist)
+) %>%
+  ggplot(aes(index, dist)) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, 3)) +
+  geom_hline(yintercept = c(0.5, 1.8), linetype = "dashed", col = "blue")
+```
+
+```{r}
+quantile(
+  kNNdist(df1_scaled, k = 11),
+  c(0.7, 0.75, 0.8, 0.9, 0.95, 0.99)
+)
+
+```
+
+# DBSCAN
+
+```{r, include=FALSE}
+db1 <- dbscan(df1_scaled, eps = 0.6, minPts = 7)
+db1
+```
+
+```{r, echo=FALSE}
+fviz_cluster(db1, data = df1_scaled)
+```
+
+## Grid Search DBSCAN
+
+```{r}
+param_grid <- expand.grid(
+  eps = seq(0.5, 2.0, 0.1),
+  minPts = seq(5, 20, 2)
+)
+```
+
+```{r}
+dbscan_results <- param_grid %>%
+  mutate(
+    model = pmap(
+      list(eps, minPts),
+      ~ dbscan(df1_scaled, eps = ..1, minPts = ..2)
+    ),
+    n_clusters = map_int(model, ~ length(unique(.x$cluster[.x$cluster > 0]))),
+    noise = map_int(model, ~ sum(.x$cluster == 0))
+  )
+```
+
+```{r}
+dbscan_results %>%
+  arrange(desc(n_clusters), noise) %>%
+  head(70)
+
+```
+
+# PCA + DBSCAN
+
+```{r, include=FALSE}
+pca_df1 <- recipe(~ ., data = df1) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_numeric_predictors(), threshold = 0.9) %>%
+  prep() %>%
+  bake(new_data = NULL)
+```
+
+```{r, echo=FALSE}
+ggpairs(pca_df1)
+```
+
+```{r, include=FALSE}
+pca_scaled <- scale(pca_df1)
+```
+
+```{r, echo=FALSE}
+set.seed(123)
+kNNdistplot(pca_scaled, k = 11)
+```
+
+```{r}
+quantile(
+  kNNdist(pca_scaled, k = 11),
+  c(0.7, 0.8, 0.9, 0.95)
+)
+```
+
+```{r, echo=FALSE}
+clust_pca <- dbscan(pca_scaled, eps = 1.2, minPts = 11)
+fviz_cluster(clust_pca, data = pca_scaled)
+```
+
+# OPTICS
+
+```{r, echo=FALSE}
+opt <- optics(df1_scaled, minPts = 11)
+plot(opt)
+```
+
+```{r, echo=FALSE}
+opt_xi <- extractXi(opt, xi = 0.05)
+plot(opt_xi)
+```
+
+## OPTICS + KXi TUNING
+
+```{r, include=FALSE}
+kxi_params <- expand.grid(
+  n_xi = seq(0.01, 0.5, 0.01),
+  dim_red = "PCA",
+  dist = "euclidean",
+  pts = c(10, 20, 30),
+  n_dimred_comp = 2
+)
+```
+
+```{r, echo=FALSE}
+kxi_res <- opticskxi_pipeline(df1_scaled, kxi_params)
+ggplot_kxi_metrics(kxi_res)
+```
+
+```{r}
+best_kxi <- get_best_kxi(kxi_res)
+table(best_kxi$clusters)
+```
+
+# HDBSCAN
+
+```{r, include=FALSE}
+set.seed(123)
+hdb <- hdbscan(df1_scaled, minPts = 11)
+```
+
+```{r, echo=FALSE}
+plot(hdb)
+```
+
+```{r, include=FALSE}
+datos_plot <- data.frame(df1_scaled, cluster = as.factor(hdb$cluster))
+```
+
+```{r, echo=FALSE}
+ggplot(datos_plot, aes(x = bill_length_mm, y = flipper_length_mm, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(title = "HDBSCAN - Penguins")
+```
+
+```{r, echo=FALSE}
+hullplot(df1_scaled, hdb, main = "HDBSCAN")
+```
+
+## Comparación con especie real
+
+```{r}
+table(df1_con_clase$species, hdb$cluster)
+```
+
+# Gaussian Mixture Models (mclust)
+
+```{r, include=FALSE}
+df1_scaled <- scale(df1)
+```
+
+```{r, include=FALSE}
+set.seed(123)
+
+BIC <- mclustBIC(df1_scaled)
+```
+
+```{r, echo=FALSE}
+plot(BIC)
+```
+
+# Modelo óptimo según BIC
+
+```{r, include=FALSE}
+GMM_model <- Mclust(df1_scaled, x = BIC)
+```
+
+```{r, echo=FALSE}
+plot(
+  GMM_model,
+  what = "density",
+  type = "hdr",
+  data = df1_scaled,
+  points.cex = 0.5
+)
+```
+
+```{r, echo=FALSE}
+plot(GMM_model, what = "classification", fillEllipses = TRUE)
+```
+
+```{r, echo=FALSE}
+plot(GMM_model, what = "classification")
+```
+
+# Reducción de dimensión supervisada (MclustDR)
+
+```{r, include=FALSE}
+set.seed(123)
+
+Clust_GMM <- MclustDR(GMM_model)
+```
+
+```{r, echo=FALSE}
+plot(Clust_GMM, what = "pairs")
+```
+
+```{r, echo=FALSE}
+plot(Clust_GMM, what = "boundaries", ngrid = 200)
+```
+
+## Comparación con la especie real
+
+```{r, echo=FALSE}
+table(df1_con_clase$species, GMM_model$classification)
+```
+
+# Model-based clustering no gaussiano (flexmix)
+
+```{r, include=FALSE}
+set.seed(123)
+
+models <- stepFlexmix(
+  df1_scaled ~ 1,
+  k = 1:8,
+  model = FLXMCmvnorm(),
+  nrep = 100,
+  drop = FALSE
+)
+```
+
+```{r}
+models
+```
+
+```{r, echo=FALSE}
+plot(models)
+```
+
+```{r, include=FALSE}
+bestmodel_BIC <- getModel(models, "BIC")
+bestmodel_AIC <- getModel(models, "AIC")
+bestmodel_ICL <- getModel(models, "ICL")
+```
+
+```{r}
+bestmodel_BIC
+bestmodel_AIC
+bestmodel_ICL
+```
+
+# Forzando 3 clusters
+
+```{r, include=FALSE}
+my_model <- flexmix(
+  df1_scaled ~ 1,
+  k = 3,
+  model = FLXMCmvnorm()
+)
+```
+
+```{r, include=FALSE}
+my_model
+```
+
+```{r}
+table(clusters(my_model))
+```
+
